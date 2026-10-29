@@ -18,9 +18,15 @@ env:
 
 jobs:
   quality:
-    name: Typecheck, tests, lint
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    name: Typecheck, tests, lint (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows runs the suite too: path, ESM-URL and file-mode behavior
+        # differ there and only a Windows run catches them.
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
