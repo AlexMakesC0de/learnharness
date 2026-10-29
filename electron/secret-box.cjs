@@ -4,14 +4,19 @@
  * (auth.json, chatgpt/github-copilot/xai-credentials.json). File mode 0600
  * protects them on macOS and Linux; on Windows Node's chmod only toggles the
  * read-only bit, so there the files are encrypted with a per-install data
- * key that Windows DPAPI binds to the current user.
+ * key that Windows DPAPI binds to the current user. The desktop app does the
+ * same on Windows and macOS with a key from Electron safeStorage
+ * (secret-key.cjs).
  *
  * Key source, first match wins:
  *   1. LH_SECRETS_KEY (base64, 32 bytes): an explicit key from the host.
- *   2. Windows, outside the Electron shell: secrets.key beside the secret
+ *      The desktop app passes its safeStorage key to its server this way.
+ *   2. useKey(): the desktop main process's own safeStorage key, held in
+ *      memory only.
+ *   3. Windows, outside the Electron shell: secrets.key beside the secret
  *      file, the data key wrapped with DPAPI (CurrentUser), created on the
  *      first write. Unwrapped once per process and cached.
- *   3. Otherwise none: files stay plaintext JSON and 0600 does the job.
+ *   4. Otherwise none: files stay plaintext JSON and 0600 does the job.
  *
  * Plaintext files are always accepted on read, so existing files and
  * hand-edits keep working; the next write seals them. A sealed file that
@@ -32,11 +37,22 @@ const ENVELOPE = 1;
 const AAD = Buffer.from("lhSecretBox:1");
 const fail = (code) => Object.assign(new Error(code), { code });
 
-/** Which key source applies in this process: "env", "dpapi" or null. */
+// The desktop main process's key (useKey); never copied into process.env, so
+// children spawned by main get it only where main passes it explicitly.
+let processKey = null;
+
+/** Main process only: use `key` (32 bytes) for this process, or null for none. */
+function useKey(key) {
+	if (key !== null && (!Buffer.isBuffer(key) || key.length !== 32)) throw fail("bad-key");
+	processKey = key;
+}
+
+/** Which key source applies in this process: "env", "process", "dpapi" or null. */
 function keySource(env = process.env, platform = process.platform) {
 	if (env.LH_SECRETS_KEY) return "env";
-	// The desktop shell gets its own key path (Electron safeStorage); until
-	// then the packaged app keeps its current files.
+	if (processKey !== null) return "process";
+	// The desktop app's processes get their key from safeStorage via main
+	// (secret-key.cjs), never from DPAPI here.
 	if (platform === "win32" && !process.versions.electron && env.LH_DESKTOP_SERVER !== "1") return "dpapi";
 	return null;
 }
@@ -68,6 +84,7 @@ function dataKey(dir, create) {
 		if (key.length !== 32) throw fail("bad-key");
 		return key;
 	}
+	if (source === "process") return processKey;
 	const file = path.join(dir, KEY_FILE);
 	const cached = cache.get(file);
 	if (cached) return cached;
@@ -164,4 +181,4 @@ function openText(file, raw) {
 	}
 }
 
-module.exports = { KEY_FILE, keySource, isSealed, sealText, openText };
+module.exports = { KEY_FILE, keySource, useKey, isSealed, sealText, openText };

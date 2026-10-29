@@ -118,9 +118,12 @@ test("file read/write failures are sanitized and cannot leak credential or path 
 	} finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
-test("desktop wiring uses only the private JSON path, with no Electron safeStorage dependency", async () => {
+test("desktop wiring uses only the private JSON path; safeStorage only wraps the data key", async () => {
 	const main = await fs.readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
 	const auth = await fs.readFile(new URL("../electron/chatgpt.cjs", import.meta.url), "utf8");
 	assert.match(main, /store: fileStore\(path\.join\(app\.getPath\("userData"\), "chatgpt-credentials\.json"\)\)/);
-	assert.doesNotMatch(main + auth, /safeStorage|encryptedStore|chatgpt-credentials\.enc\.json/);
+	assert.doesNotMatch(main + auth, /encryptedStore|chatgpt-credentials\.enc\.json/);
+	// The credential store never calls safeStorage; main hands it to secret-key.cjs once.
+	assert.doesNotMatch(auth, /safeStorage/);
+	assert.match(main, /loadSecretsKey\(\{[\s\S]*?safeStorage,/);
 });

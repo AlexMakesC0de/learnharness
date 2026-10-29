@@ -17,17 +17,21 @@
  *   - all mutable state under userData (never inside the .app bundle —
  *     translocated apps are read-only);
  *   - keys ride the child's ENV, never argv; auth.json (BYOK) is a flat
- *     {VAR: value} JSON map, plaintext, mode 0600 — server-managed since
+ *     {VAR: value} JSON map, mode 0600, sealed at rest on Windows and macOS
+ *     (secret-key.cjs, LH_SECRETS_KEY below) — server-managed since
  *     the auth-keys wave (2026-09-19): the child reads/writes it DIRECTLY
  *     (LH_AUTH_FILE below) and reflects values into its own env. The old
  *     spawn-time env injection retired with that wave — a copy made here
  *     would shadow every settings-page key change until restart.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, safeStorage, session, shell } = require("electron");
 const { createChatGPT, fileStore } = require("./chatgpt.cjs");
 const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt-ipc.cjs");
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
+const { PROVIDERS } = require("./subscription-store.cjs");
+const { useKey } = require("./secret-box.cjs");
+const { loadSecretsKey } = require("./secret-key.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
@@ -141,6 +145,8 @@ let subscriptions = null;
 let subscriptionChild = null;
 // Per-launch request capability, never OAuth tokens and never renderer state.
 let desktopAPISecret = null;
+// The safeStorage data key for secret files (secret-key.cjs), or null.
+let secretsKey = null;
 let reopenWindow = null;
 const trustedAppWindows = new Set();
 
@@ -222,6 +228,8 @@ function startServer(port) {
 					LH_AUTH_FILE: AUTH_FILE(),
 					LH_DESKTOP_SERVER: "1",
 					LH_DESKTOP_API_SECRET: desktopAPISecret,
+					// Seals auth.json at rest; only this child gets it (secret-key.cjs).
+					...(secretsKey ? { LH_SECRETS_KEY: secretsKey.toString("base64") } : {}),
 				},
 				stdio: ["ignore", "pipe", "pipe", "ipc"],
 			},
@@ -653,6 +661,19 @@ async function main() {
 	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
 	if (!devUrl) {
 		desktopAPISecret = randomBytes(32).toString("hex");
+		// Before any secret store reads or writes: they seal with this key.
+		const userData = app.getPath("userData");
+		try {
+			secretsKey = loadSecretsKey({
+				directory: userData,
+				safeStorage,
+				sealedFiles: ["chatgpt", ...PROVIDERS].map((id) => path.join(userData, `${id}-credentials.json`)),
+				log,
+			});
+		} catch (error) {
+			log(`secrets: key unavailable (${error.code ?? error.message}), secret files are left as they are`);
+		}
+		useKey(secretsKey);
 		const ownedOrigin = new URL(url).origin;
 		// All URLs, not only /api: remove the header again on external redirects.
 		session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["<all_urls>"] }, (details, callback) => {

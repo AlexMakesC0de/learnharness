@@ -130,7 +130,7 @@ export function parseBrowserServiceLine(line: string): number | null {
 
 /** Spawn env sanitizer (pure; exported for tests): the helper must run as a
  *  FULL Electron app — ELECTRON_RUN_AS_NODE must not leak — and must not
- *  inherit the dev-shell userData redirect. */
+ *  inherit the dev-shell userData redirect or the secrets key. */
 export function browserServiceSpawnEnv(
 	env: Record<string, string | undefined>,
 ): Record<string, string | undefined> {
@@ -140,6 +140,8 @@ export function browserServiceSpawnEnv(
 	// The artifact renderer is not an authorized app API client.
 	delete out.LH_DESKTOP_API_SECRET;
 	delete out.LH_DESKTOP_SERVER;
+	// Nor does it touch secret files.
+	delete out.LH_SECRETS_KEY;
 	return out;
 }
 

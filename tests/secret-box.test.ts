@@ -15,7 +15,7 @@ import { after, describe, it } from "node:test";
 
 const require = createRequire(import.meta.url);
 const BOX = path.resolve("electron/secret-box.cjs");
-const { KEY_FILE, keySource, isSealed, sealText, openText } = require(BOX);
+const { KEY_FILE, keySource, useKey, isSealed, sealText, openText } = require(BOX);
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "lh-secret-box-"));
 after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -42,6 +42,19 @@ describe("key source", () => {
 	});
 	it("macOS and Linux keep plaintext 0600", () => {
 		assert.equal(keySource({}, "darwin"), null);
+		assert.equal(keySource({}, "linux"), null);
+	});
+	it("the desktop main process's in-memory key comes after an explicit key", () => {
+		useKey(crypto.randomBytes(32));
+		try {
+			assert.equal(keySource({}, "darwin"), "process");
+			assert.equal(keySource({ LH_DESKTOP_SERVER: "1" }, "win32"), "process");
+			assert.equal(keySource({ LH_SECRETS_KEY: "x" }, "darwin"), "env");
+		} finally { useKey(null); }
+		assert.equal(keySource({}, "darwin"), null);
+	});
+	it("useKey refuses a key of the wrong length", () => {
+		assert.throws(() => useKey(Buffer.alloc(16)), { code: "bad-key" });
 		assert.equal(keySource({}, "linux"), null);
 	});
 });

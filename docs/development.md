@@ -50,12 +50,17 @@ The packaged desktop app takes keys from `userData/auth.json` (BYOK, mode 0600, 
 
 ### Secrets at rest
 
-`auth.json` and the `*-credentials.json` files go through `electron/secret-box.cjs`. Mode 0600 protects them on macOS and Linux, but on Windows Node's `chmod` only toggles the read-only bit, so there they are sealed with AES-256-GCM under a per-install data key:
+`auth.json` and the `*-credentials.json` files go through `electron/secret-box.cjs`. Mode 0600 protects them on macOS and Linux, but on Windows Node's `chmod` only toggles the read-only bit. They are sealed with AES-256-GCM under a per-install data key on Windows (dev, web and desktop) and in the macOS desktop app:
 
-- **Key source, first match wins:** `LH_SECRETS_KEY` (base64, 32 bytes); on Windows outside the Electron shell, `secrets.key` beside the secret files, the data key wrapped with DPAPI for the current user (created on first write, unwrapped once per process through Windows PowerShell); otherwise none, and the files stay plaintext 0600. The packaged desktop app keeps its current files for now.
+- **Key source, first match wins:**
+  - `LH_SECRETS_KEY` (base64, 32 bytes). The desktop app passes its key to its server child this way, never in argv. The browser-service helper never receives it.
+  - In the desktop main process, the key it loaded with `useKey()`, held in memory only.
+  - On Windows outside the Electron shell, `secrets.key` beside the secret files: the data key wrapped with DPAPI for the current user. It is created on first write and unwrapped once per process through Windows PowerShell.
+  - Otherwise none, and the files stay plaintext 0600.
+- **Desktop key** (`electron/secret-key.cjs`, Windows and macOS): `userData/secrets.key` holds the data key wrapped with Electron `safeStorage` (DPAPI on Windows, the "LearnHarness Safe Storage" Keychain item on macOS), loaded once at startup. Unsigned local macOS builds may ask for Keychain access. Linux desktop builds stay plaintext 0600, because `safeStorage` there can fall back to `basic_text`. If OS encryption is unavailable, the app logs it and leaves the files as they are. If `secrets.key` no longer unwraps, it is renamed to `secrets.key.unreadable-<timestamp>` together with any sealed `*-credentials.json` (sign in again), and a new key is created.
 - **Plaintext is still read.** Existing files and hand-edits keep working; the next write seals them.
 - **Unreadable is never overwritten.** A sealed `auth.json` that cannot be opened (lost or foreign key, tampered bytes) is renamed to `auth.json.unreadable-<timestamp>` and the keys page asks for the keys again. A sealed credential file that cannot be opened is a storage error, as a corrupt one already was.
-- **Scope:** this protects copies, syncs, backups, other users and tools that only read files. It does not protect against code running as you, which can ask DPAPI too, or keys in the running server's memory. `.env.local` stays plaintext.
+- **Scope:** this protects copies, syncs, backups, other users and tools that only read files. It does not protect against code running as you, which can ask DPAPI or the Keychain too, or keys in the running server's memory. `.env.local` stays plaintext.
 
 ### Subscription connections in web/dev
 

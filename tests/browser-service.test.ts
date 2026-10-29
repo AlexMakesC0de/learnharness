@@ -26,10 +26,12 @@ describe("browser-service helper (pure halves)", () => {
 		const env = browserServiceSpawnEnv({
 			ELECTRON_RUN_AS_NODE: "1",
 			LH_DEV_URL: "http://localhost:3000",
+			LH_SECRETS_KEY: "c2VjcmV0",
 			PATH: "/usr/bin",
 		});
 		assert.equal("ELECTRON_RUN_AS_NODE" in env, false);
 		assert.equal("LH_DEV_URL" in env, false);
+		assert.equal("LH_SECRETS_KEY" in env, false, "the helper never gets the secrets key");
 		assert.equal(env.PATH, "/usr/bin");
 	});
 
