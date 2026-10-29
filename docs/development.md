@@ -48,11 +48,20 @@ Secrets and machine-specific paths only. Model choice and thinking budgets are t
 
 The packaged desktop app takes keys from `userData/auth.json` (BYOK, mode 0600, read/written directly by the server via `LH_AUTH_FILE`). PDFs render natively with pdfjs/Skia; SVGs use resvg.
 
+### Secrets at rest
+
+`auth.json` and the `*-credentials.json` files go through `electron/secret-box.cjs`. Mode 0600 protects them on macOS and Linux, but on Windows Node's `chmod` only toggles the read-only bit, so there they are sealed with AES-256-GCM under a per-install data key:
+
+- **Key source, first match wins:** `LH_SECRETS_KEY` (base64, 32 bytes); on Windows outside the Electron shell, `secrets.key` beside the secret files, the data key wrapped with DPAPI for the current user (created on first write, unwrapped once per process through Windows PowerShell); otherwise none, and the files stay plaintext 0600. The packaged desktop app keeps its current files for now.
+- **Plaintext is still read.** Existing files and hand-edits keep working; the next write seals them.
+- **Unreadable is never overwritten.** A sealed `auth.json` that cannot be opened (lost or foreign key, tampered bytes) is renamed to `auth.json.unreadable-<timestamp>` and the keys page asks for the keys again. A sealed credential file that cannot be opened is a storage error, as a corrupt one already was.
+- **Scope:** this protects copies, syncs, backups, other users and tools that only read files. It does not protect against code running as you, which can ask DPAPI too, or keys in the running server's memory. `.env.local` stays plaintext.
+
 ### Subscription connections in web/dev
 
 Ordinary `npm run dev` and `npm start` support the existing **ChatGPT, GitHub Copilot and Grok** connections in Settings → Providers. No separate launcher or change to Next's listening/LAN behavior is required. `npm run desktop:dev` uses these same dev-server connections; the packaged desktop app keeps its separate main-process credentials and private IPC transport.
 
-Web/dev saves `chatgpt-credentials.json`, `github-copilot-credentials.json` and `xai-credentials.json` **beside the configured API-key `auth.json`**: the project directory by default, or the directory containing `LH_AUTH_FILE`. These are owner-only plaintext files, not files under `data/`, desktop Application Support, or a global Pi profile. Git and standalone-build exclusions cover both the files and atomic-write temporary files. Run only one server process per credential directory: refresh serialization is process-local, not a cross-process lock.
+Web/dev saves `chatgpt-credentials.json`, `github-copilot-credentials.json` and `xai-credentials.json` **beside the configured API-key `auth.json`**: the project directory by default, or the directory containing `LH_AUTH_FILE`. These are owner-only files (sealed at rest on Windows, see below), not files under `data/`, desktop Application Support, or a global Pi profile. Git and standalone-build exclusions cover both the files and atomic-write temporary files. Run only one server process per credential directory: refresh serialization is process-local, not a cross-process lock.
 
 Sign-in opens a new tab in the browser that initiated it; permit that tab if your browser blocks popups. **ChatGPT sign-in must be completed in a browser on the server's machine**, because its callback listener remains `127.0.0.1` on that machine. Copilot/Grok use device codes. In the Electron dev shell, provider pages open in the system browser instead. Once connected, credentials and refresh remain server-owned; other browsers using that server share its connections and background-use consent, just as they share its API keys. Disconnect, storage-failure handling, and provider-specific background consent retain the existing behavior; subscription routes never fall back to API-key billing.
 

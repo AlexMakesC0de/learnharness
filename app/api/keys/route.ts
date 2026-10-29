@@ -15,11 +15,17 @@
  * value comes from the environment (dev .env.local / launch env) or the
  * file, and `shadowedByEnv` explains why a saved key is not the live one
  * (env always wins).
+ *
+ * `unreadableFile` names (file name only) where saved keys that could not
+ * be decrypted were moved this process; null otherwise.
  */
-import { keyStatuses, providerKeyList } from "@/src/server";
+import path from "node:path";
+import { keyStatuses, providerKeyList, unreadableKeysFile } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-	return Response.json({ keys: keyStatuses(), providers: providerKeyList() });
+	const keys = keyStatuses(); // reads the store first, so a quarantine is current
+	const unreadable = unreadableKeysFile();
+	return Response.json({ keys, providers: providerKeyList(), unreadableFile: unreadable ? path.basename(unreadable) : null });
 }

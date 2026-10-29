@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const { openText, sealText } = require("./secret-box.cjs");
 
 const ISSUER = "https://auth.openai.com";
 const RESOURCE = "https://api.openai.com/v1";
@@ -50,12 +51,14 @@ function validateState(state) {
 	return state;
 }
 
-/** Private, unencrypted JSON outside learning data. No OS credential-store access. */
+/** Private JSON outside learning data, sealed at rest by secret-box.cjs where a key
+ *  source applies (plaintext 0600 otherwise). An unopenable sealed file is a storage
+ *  failure and is never overwritten by a read. */
 function fileStore(file) {
 	return {
 		async read() {
 			try {
-				return validateState(JSON.parse(await fs.readFile(file, "utf8")));
+				return validateState(JSON.parse(openText(file, await fs.readFile(file, "utf8"))));
 			} catch (err) {
 				if (err.code === "ENOENT") return null;
 				throw fail("storage");
@@ -68,7 +71,7 @@ function fileStore(file) {
 			try {
 				await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
 				handle = await fs.open(temp, "wx", 0o600);
-				await handle.writeFile(`${JSON.stringify(state)}\n`);
+				await handle.writeFile(`${sealText(file, JSON.stringify(state))}\n`);
 				await handle.sync();
 				await handle.close();
 				handle = null;
