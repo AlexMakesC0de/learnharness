@@ -182,6 +182,12 @@ export function keyStatuses(): AuthKeyStatus[] {
 	return resolveKeyStatuses(authStore.authVars(), process.env, boot().realEnv, AUTH_PROVIDER_ENV_VARS);
 }
 
+/** Where saved keys that could not be decrypted were moved this process,
+ *  or null; the keys page asks the user to re-enter them. */
+export function unreadableKeysFile(): string | null {
+	return authStore.unreadableFile();
+}
+
 /** The live value for one var, env-first (the env-wins rule) — the canonical
  *  read for consumers that don't live behind the @/src/server barrel (the
  *  STT route was the one cold-boot hole: a first-ever request to it would

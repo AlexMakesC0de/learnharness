@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { createRequire } from "node:module";
+import { readSecretJSON } from "./secret-files.ts";
 import { createModels, type OAuthCredential, type ProviderAuthInteraction } from "@earendil-works/pi-ai";
 import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
@@ -62,7 +63,7 @@ test("web background OFF immediately aborts background streams, retains foregrou
 		const nativeScope = native.subscriptionScope("xai", xaiModel.id); await native.subscriptionLease(nativeScope, false); await assert.rejects(native.subscriptionLease(nativeScope, true));
 		await subscriptionControlsResponse(request({ providerId: "xai", op: "disconnect" }));
 		assert(nativeForeground.controller.signal.aborted); assert(!native.nativeSubscriptionConnected("xai"));
-		assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, "xai-credentials.json"), "utf8")), { version: 1, allowBackgroundUse: false });
+		assert.deepEqual(await readSecretJSON(path.join(directory, "xai-credentials.json")), { version: 1, allowBackgroundUse: false });
 	} finally { foreground.release(); background.release(); nativeForeground.release(); nativeBackground.release(); }
 });
 

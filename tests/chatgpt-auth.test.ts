@@ -8,6 +8,7 @@ import path from "node:path";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import type { ChatGPTStatus } from "../src/core/contracts/chatgpt.ts";
 import { completedWithin } from "./completion.ts";
+import { assertSecretAtRest, KEY_FILE, readSecretJSON } from "./secret-files.ts";
 const require = createRequire(import.meta.url);
 const { createChatGPT, fileStore, allowedAuthEndpoint, SCOPES } = require("../electron/chatgpt.cjs");
 const { privateKey, publicKey } = await generateKeyPair("RS256");
@@ -252,15 +253,15 @@ test("private JSON file round-trips global state; creation and atomic replacemen
 		assert.equal(await store.read(), null);
 		const data = { ...initial(), allowBackgroundUse: false };
 		await store.write(data);
-		assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")), data, "ordinary JSON, not an encrypted envelope");
+		assert.deepEqual(await readSecretJSON(file), data, "JSON, sealed at rest where a key source applies");
 		assert.deepEqual(await store.read(), data);
-		assert.equal((await fs.stat(path.dirname(file))).mode & 0o777, 0o700);
-		assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
+		if (process.platform !== "win32") assert.equal((await fs.stat(path.dirname(file))).mode & 0o777, 0o700);
+		await assertSecretAtRest(file);
 		await fs.chmod(file, 0o644);
 		await store.write({ ...data, allowBackgroundUse: true });
-		assert.equal((await fs.stat(file)).mode & 0o777, 0o600, "replacement never inherits a permissive old mode");
+		await assertSecretAtRest(file, "replacement never inherits a permissive old mode");
 		assert.equal((await store.read()).allowBackgroundUse, true);
-		assert.deepEqual(await fs.readdir(path.dirname(file)), ["chatgpt-credentials.json"]);
+		assert.deepEqual((await fs.readdir(path.dirname(file))).filter((name) => name !== KEY_FILE), ["chatgpt-credentials.json"]);
 	} finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { KEY_FILE } from "./secret-files.ts";
 const require = createRequire(import.meta.url);
 const { createChatGPT, fileStore } = require("../electron/chatgpt.cjs");
 const initial = () => ({ version: 1, hostId: "urn:uuid:scratch-host", activeId: null, registrations: [] });
@@ -95,7 +96,7 @@ for (const phase of ["sync", "rename"] as const) {
 			}
 			await assert.rejects(store.write({ ...initial(), allowBackgroundUse: false }), /^Error: storage$/);
 			assert.equal(await fs.readFile(file, "utf8"), before);
-			assert.deepEqual(await fs.readdir(dir), ["chatgpt-credentials.json"]);
+			assert.deepEqual((await fs.readdir(dir)).filter((name) => name !== KEY_FILE), ["chatgpt-credentials.json"]);
 		} finally { await fs.rm(dir, { recursive: true, force: true }); }
 	});
 }

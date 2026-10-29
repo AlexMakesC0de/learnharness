@@ -12,6 +12,7 @@ const require = createRequire(import.meta.url);
 const { createSubscriptions, loadSubscriptionSDK, validEndpoint, publicError } = require("../electron/subscriptions.cjs");
 const { fileStore, validateState } = require("../electron/subscription-store.cjs");
 const { subscriptionControl } = require("../electron/subscription-ipc.cjs");
+import { assertSecretAtRest, readSecretJSON } from "./secret-files.ts";
 const ids = ["github-copilot", "xai"] as const;
 const credential = (id: string, expires = Date.now() + 3600000): OAuthCredential => ({ type: "oauth", access: id === "xai" ? "fixture-xai-access" : "tid=fixture;proxy-ep=proxy.individual.githubcopilot.com;", refresh: "fixture-refresh", expires, ...(id === "github-copilot" ? { availableModelIds: [githubCopilotProvider().getModels()[0]!.id] } : {}) });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { resolve, promise }; }
@@ -46,9 +47,9 @@ for (const id of ids) test(`${id}: independent default-ON file, restart, explici
 	try {
 		assert((await f.controller.status()).every((s: any) => s.available && !s.connected && s.allowBackgroundUse));
 		await f.controller.login(id, false);
-		const saved = JSON.parse(await fs.readFile(path.join(f.directory, `${id}-credentials.json`), "utf8"));
+		const saved = await readSecretJSON(path.join(f.directory, `${id}-credentials.json`));
 		assert.equal(saved.version, 1); assert.equal(saved.credential.type, "oauth"); assert.equal(saved.allowBackgroundUse, false);
-		assert.equal((await fs.stat(path.join(f.directory, `${id}-credentials.json`))).mode & 0o777, 0o600);
+		await assertSecretAtRest(path.join(f.directory, `${id}-credentials.json`));
 		const publicState = JSON.stringify(await f.controller.snapshot());
 		assert(!publicState.includes(saved.credential.access)); assert(!publicState.includes(saved.credential.refresh));
 		const scope = await f.scope(id), result = await f.controller.lease(scope, false);
@@ -58,7 +59,7 @@ for (const id of ids) test(`${id}: independent default-ON file, restart, explici
 		const reloaded = createSubscriptions({ directory: f.directory, sdk: f.sdk, openExternal: async () => {} }); await reloaded.ready;
 		assert.equal((await reloaded.status()).find((s: any) => s.providerId === id).connectionId, saved.connectionId); reloaded.close();
 		await f.controller.disconnect(id); await assert.rejects(f.controller.lease(scope, false));
-		const removed = JSON.parse(await fs.readFile(path.join(f.directory, `${id}-credentials.json`), "utf8"));
+		const removed = await readSecretJSON(path.join(f.directory, `${id}-credentials.json`));
 		assert.deepEqual(removed, { version: 1, allowBackgroundUse: false });
 		assert.equal((await f.controller.status()).find((s: any) => s.providerId !== id).connected, false);
 	} finally { await f.cleanup(); }
@@ -72,7 +73,7 @@ test("parallel expired-token requests refresh once, preserve native extension me
 		await new Promise((resolve) => setImmediate(resolve));
 		const next = { ...credential("github-copilot"), refresh: "rotated-single-writer", extraNativeField: "retained" }; release.resolve(next);
 		const results = await Promise.all([first, second]); assert.equal(f.refreshes, 1); assert.equal(results[0].auth.apiKey, next.access);
-		const saved = JSON.parse(await fs.readFile(path.join(f.directory, "github-copilot-credentials.json"), "utf8"));
+		const saved = await readSecretJSON(path.join(f.directory, "github-copilot-credentials.json"));
 		assert.equal(saved.credential.refresh, "rotated-single-writer"); assert.equal(saved.credential.extraNativeField, "retained");
 	} finally { await f.cleanup(); }
 });
@@ -132,7 +133,7 @@ test("Copilot native enterprise prompt is answered only through the current opaq
 		assert.equal(prompt.type, "text"); assert.equal(prompt.message, "GitHub domain");
 		await assert.rejects(f.controller.respond("github-copilot", "stale", prompt.id, "company.ghe.com"));
 		await f.controller.respond("github-copilot", attemptId, prompt.id, "company.ghe.com"); await pending;
-		const saved = JSON.parse(await fs.readFile(path.join(f.directory, "github-copilot-credentials.json"), "utf8")); assert.equal(saved.credential.enterpriseUrl, "company.ghe.com"); assert.equal(saved.allowBackgroundUse, false);
+		const saved = await readSecretJSON(path.join(f.directory, "github-copilot-credentials.json")); assert.equal(saved.credential.enterpriseUrl, "company.ghe.com"); assert.equal(saved.allowBackgroundUse, false);
 		assert(!(await f.controller.status()).find((s: any) => s.providerId === "github-copilot").interaction);
 	} finally { await f.cleanup(); }
 });
@@ -143,7 +144,7 @@ test("account endpoint rotation invalidates older scopes without losing the dura
 		await f.controller.login("github-copilot"); const old = await f.scope("github-copilot"); await assert.rejects(f.controller.lease(old, false));
 		const scope = await f.scope("github-copilot"); assert(scope.authorityRevision > old.authorityRevision); assert.equal(scope.connectionId, old.connectionId);
 		assert.equal((await f.controller.lease(scope, false)).auth.baseUrl, "https://api.business.githubcopilot.com"); assert.equal(f.refreshes, 1);
-		assert.equal(JSON.parse(await fs.readFile(path.join(f.directory, "github-copilot-credentials.json"), "utf8")).credential.access, next.access);
+		assert.equal((await readSecretJSON(path.join(f.directory, "github-copilot-credentials.json"))).credential.access, next.access);
 	} finally { await f.cleanup(); }
 });
 test("a malformed returned rotation fails closed and cannot retry with the pre-rotation credential", async () => {
@@ -188,7 +189,7 @@ test("disconnect during refresh cannot resurrect credentials or replace disconne
 		await new Promise((resolve) => setImmediate(resolve)); const disconnect = f.controller.disconnect("xai"); rotation.resolve({ ...credential("xai"), refresh: "do-not-resurrect" });
 		await disconnect; assert(await lease);
 		const status = (await f.controller.status()).find((s: any) => s.providerId === "xai"); assert.equal(status.connectionId, null); assert.equal(status.error, undefined);
-		assert.deepEqual(JSON.parse(await fs.readFile(path.join(f.directory, "xai-credentials.json"), "utf8")), { version: 1, allowBackgroundUse: true });
+		assert.deepEqual(await readSecretJSON(path.join(f.directory, "xai-credentials.json")), { version: 1, allowBackgroundUse: true });
 	} finally { await f.cleanup(); }
 });
 test("pause during refresh saves returned rotation but refuses the request; resume uses durable refreshed state", async () => {
@@ -196,7 +197,7 @@ test("pause during refresh saves returned rotation but refuses the request; resu
 	try {
 		await f.controller.login("xai", true); const scope = await f.scope("xai"); const lease = f.controller.lease(scope, false).then(() => false, () => true);
 		await new Promise((resolve) => setImmediate(resolve)); f.controller.pause(); rotation.resolve({ ...credential("xai"), refresh: "rotation-survives-pause" }); assert(await lease);
-		const saved = JSON.parse(await fs.readFile(path.join(f.directory, "xai-credentials.json"), "utf8")); assert.equal(saved.credential.refresh, "rotation-survives-pause");
+		const saved = await readSecretJSON(path.join(f.directory, "xai-credentials.json")); assert.equal(saved.credential.refresh, "rotation-survives-pause");
 		f.controller.resume(); await f.controller.lease(await f.scope("xai"), false); assert.equal(f.refreshes, 1);
 	} finally { await f.cleanup(); }
 });
@@ -215,7 +216,7 @@ test("atomic store failed rename preserves original and leaves no temporary file
 		await fileStore(file, "xai").write(state);
 		const io = { ...fs, rename: async () => { throw new Error("fixture-rename-failure"); } };
 		await assert.rejects(fileStore(file, "xai", io).write({ version: 1, allowBackgroundUse: true }));
-		assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")), state);
+		assert.deepEqual(await readSecretJSON(file), state);
 		assert.deepEqual((await fs.readdir(f.directory)).filter((name) => name.endsWith(".tmp")), []);
 	} finally { await f.cleanup(); }
 });

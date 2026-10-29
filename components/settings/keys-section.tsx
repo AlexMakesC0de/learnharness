@@ -43,6 +43,8 @@ export interface ProviderKeyInfo {
 interface KeysResponse {
 	keys: AuthKeyStatus[];
 	providers?: ProviderKeyInfo[];
+	/** Where saved keys that could not be decrypted were moved (file name). */
+	unreadableFile?: string | null;
 }
 
 /** The curated tools group, pinned by id (the catalog owns the copy;
@@ -342,6 +344,7 @@ export function KeysSection({
 	/** The paste editor for a freshly chosen Add-provider target. */
 	const [adding, setAdding] = useState<ProviderKeyInfo | null>(null);
 	const [addError, setAddError] = useState<string | null>(null);
+	const [unreadableFile, setUnreadableFile] = useState<string | null>(null);
 
 	// Escape folds any open editor (unfolded row or the Add-provider paste)
 	// WITHOUT closing the dialog. Claimed at document CAPTURE phase — the
@@ -369,6 +372,7 @@ export function KeysSection({
 			.then((body: KeysResponse) => {
 				setStatuses(body.keys ?? []);
 				if (body.providers) setProviders(body.providers);
+				setUnreadableFile(body.unreadableFile ?? null);
 			})
 			.catch(() => setStatuses([]))
 			.finally(() => setLoading(false));
@@ -425,6 +429,12 @@ export function KeysSection({
 
 	return (
 		<>
+			{unreadableFile && (
+				<p role="alert" data-testid="keys-unreadable" className="mx-1 mb-3 text-xs text-red-500">
+					Your saved keys could not be decrypted, so please enter them again. The old file was kept as{" "}
+					<code>{unreadableFile}</code>; you can delete it once your keys work.
+				</p>
+			)}
 			<SettingsGroup label="Model API keys" testid="group-provider-keys">
 				{providerRows.map((status) => (
 					<KeyTableRow

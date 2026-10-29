@@ -2,6 +2,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { openText, sealText } = require("./secret-box.cjs");
 
 const PROVIDERS = ["github-copilot", "xai"];
 const failure = (code) => Object.assign(new Error(code), { code });
@@ -31,14 +32,15 @@ function validateState(providerId, state) {
 	if (hasId) validateCredential(providerId, state.credential);
 	return state;
 }
-/** Main-process-only, one independent owner-only file per provider. No recovery writes on corruption. */
+/** Main-process-only, one independent owner-only file per provider, sealed at rest by
+ *  secret-box.cjs where a key source applies. No recovery writes on corruption. */
 function fileStore(file, providerId, io = fs) {
 	return {
 		async read() {
 			try {
 				const stat = await io.lstat(file);
 				if (!stat.isFile() || (process.platform !== "win32" && ((stat.mode & 0o077) !== 0 || (typeof process.getuid === "function" && stat.uid !== process.getuid())))) throw failure("storage");
-				return validateState(providerId, JSON.parse(await io.readFile(file, "utf8")));
+				return validateState(providerId, JSON.parse(openText(file, await io.readFile(file, "utf8"))));
 			}
 			catch (error) { if (error.code === "ENOENT") return { version: 1, allowBackgroundUse: true }; throw failure("storage"); }
 		},
@@ -49,7 +51,7 @@ function fileStore(file, providerId, io = fs) {
 			try {
 				await io.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
 				handle = await io.open(temporary, "wx", 0o600);
-				await handle.writeFile(`${JSON.stringify(state)}\n`);
+				await handle.writeFile(`${sealText(file, JSON.stringify(state))}\n`);
 				await handle.sync(); await handle.close(); handle = null;
 				await io.rename(temporary, file);
 				if (process.platform !== "win32") {

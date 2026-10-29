@@ -216,9 +216,13 @@ export interface AuthStore {
 	/** The whole map — absent or corrupt file = {} ("no keys yet", the
 	 *  documented first-boot state). Never throws. */
 	authVars(): Record<string, string>;
-	/** Set one VAR (atomic write, mode 0600 always, other vars preserved). */
+	/** Set one VAR (atomic write, mode 0600 always, sealed at rest where a
+	 *  key source applies, other vars preserved). */
 	setAuthVar(name: string, value: string): void;
 	/** Remove one VAR if present (absent = no-op, still a silent success). */
 	deleteAuthVar(name: string): void;
+	/** Where a sealed file that could not be decrypted was moved during this
+	 *  process, or null. The keys page asks the user to re-enter keys. */
+	unreadableFile(): string | null;
 }
 
