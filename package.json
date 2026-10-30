@@ -6,7 +6,7 @@
 		"name": "Amos Blomqvist",
 		"email": "255718537+amosblomqvist@users.noreply.github.com"
 	},
-	"homepage": "https://github.com/amosblomqvist/learnharness",
+	"homepage": "https://github.com/AlexMakesC0de/learnharness",
 	"desktopName": "learnharness.desktop",
 	"description": "An agent harness for learning: adaptive teaching, practice, and a persistent knowledge graph.",
 	"type": "module",
@@ -19,9 +19,14 @@
 		"test": "node scripts/run-tests.mjs",
 		"lint": "eslint .",
 		"typecheck": "tsc --noEmit",
-		"desktop:dev": "concurrently -k \"next dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
+		"desktop:dev": "node scripts/build-apple-stt.mjs && concurrently -k \"next dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
 		"dev:fresh": "bash scripts/dev-fresh.sh",
-		"desktop:dist": "rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs && DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} APPLE_KEYCHAIN_PROFILE=LH_NOTARY APPLE_TEAM_ID=JS6XN22HY6 electron-builder --mac --arm64"
+		"desktop:prepare": "node scripts/build-apple-stt.mjs && rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs --electron",
+		"desktop:dist": "node scripts/check-mac-notarization.mjs && npm run desktop:prepare && electron-builder --mac --arm64 --publish never -c.forceCodeSigning=true",
+		"desktop:dist:local": "npm run desktop:prepare && node scripts/package-local-mac.mjs",
+		"search:start": "node scripts/local-search.mjs start",
+		"search:stop": "node scripts/local-search.mjs stop",
+		"search:status": "node scripts/local-search.mjs status"
 	},
 	"dependencies": {
 		"@earendil-works/pi-agent-core": "1.4.0",
@@ -78,6 +83,7 @@
 		"katex": "$katex"
 	},
 	"devDependencies": {
+		"@electron/osx-sign": "1.3.3",
 		"@next/eslint-plugin-next": "^16.3.3",
 		"@tailwindcss/postcss": "^4.3.3",
 		"@types/node": "^24.0.0",

@@ -53,7 +53,9 @@ Add your provider API key and choose your models, then start a session with what
 
 All three platforms support in-app updates.
 
-**Dictation:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
+**Dictation on Mac:** The macOS desktop app uses Apple on-device speech on macOS 26+, with no speech API key or Conduit installation needed. Choose an Apple-supported language under **Settings → Providers → Dictation**; the default follows your system language. First use may download an Apple language model. Audio stays on your Mac for transcription; text you submit still goes to your configured teaching provider. Apple speech failures are shown without switching to a cloud service.
+
+**Dictation on Windows, Linux and in the browser:** Create a [Deepgram API key](https://console.deepgram.com/) with the **Member role or higher** ([required for token minting](https://developers.deepgram.com/reference/auth/tokens/grant)) and add it under **Settings → Providers → Dictation**. Choose the language below the key; **Multilingual** supports automatic recognition and mixed-language speech. A `403 Insufficient permissions` error during token minting can indicate an insufficient key role.
 
 ## Your keys, your data
 

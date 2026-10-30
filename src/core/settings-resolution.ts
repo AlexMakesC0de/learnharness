@@ -180,6 +180,7 @@ export function resolveSettings(record: UserSettings | null): EffectiveSettings 
 		},
 		dictation: {
 			language: record?.dictation?.language ?? FACTORY_SETTINGS.dictation.language,
+			appleLocale: record?.dictation?.appleLocale ?? FACTORY_SETTINGS.dictation.appleLocale,
 		},
 		agent: {
 			models,

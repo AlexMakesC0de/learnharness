@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { DICTATION_LANGUAGES, type DictationLanguage } from "@/src/core";
+import { DICTATION_LANGUAGES } from "@/src/core";
 import { MenuShell } from "@/components/menu-shell";
 import { Hint } from "@/components/ui/hint";
 import { SettingsMenuTrigger, SettingsRow } from "@/components/settings/controls";
@@ -9,24 +9,28 @@ import { SearchMenuList } from "@/components/settings/search-menu-list";
 import { useDictationActive } from "@/components/dictation-state";
 import { useDictationLanguage } from "@/components/dictation-preference";
 
-type LanguagePreference = ReturnType<typeof useDictationLanguage>;
+type LanguagePreference<T extends string> = {
+	language: T | undefined; saving: boolean; error: string | null;
+	load: () => Promise<T>; save: (code: T) => Promise<boolean>;
+};
 
 export function DictationLanguageSetting() {
 	const preference = useDictationLanguage();
 	const active = useDictationActive();
 	return <SettingsRow label="Language" testid="row-dictation-language" dimmed={active}>
-		<DictationLanguagePicker preference={preference} disabled={active} />
+		<DictationLanguagePicker preference={preference} disabled={active} items={DICTATION_LANGUAGES} />
 	</SettingsRow>;
 }
 
-function DictationLanguagePicker({ preference, disabled }: {
-	preference: LanguagePreference;
+export function DictationLanguagePicker<T extends string>({ preference, disabled, items }: {
+	preference: LanguagePreference<T>;
 	disabled: boolean;
+	items: readonly { code: T; label: string }[];
 }) {
 	const { language, saving, error, load, save } = preference;
 	const [open, setOpen] = useState(false);
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const label = DICTATION_LANGUAGES.find((item) => item.code === language)?.label ?? "—";
+	const label = items.find((item) => item.code === language)?.label ?? "—";
 
 	useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
 	useEffect(() => {
@@ -46,7 +50,7 @@ function DictationLanguagePicker({ preference, disabled }: {
 		setOpen(false);
 		triggerRef.current?.focus();
 	};
-	const pick = async (code: DictationLanguage) => {
+	const pick = async (code: T) => {
 		if (disabled || saving || language === undefined) return;
 		if (await save(code)) {
 			setOpen(false);
@@ -88,7 +92,7 @@ function DictationLanguagePicker({ preference, disabled }: {
 			}}>
 				{error && <div role="alert" className="mb-1.5 text-destructive">{error}</div>}
 				<SearchMenuList
-					items={DICTATION_LANGUAGES}
+					items={items}
 					itemKey={(item) => item.code}
 					searchTerms={(item) => [item.code, item.label]}
 					isSelected={(item) => item.code === language}

@@ -159,11 +159,13 @@ describe("desktop packaging policy", () => {
 		assert.equal(config.publish[0].releaseType, "draft");
 	});
 
-	it("deb has public maintainer metadata and a matching desktop identity", () => {
+	it("retains upstream attribution and uses the fork's homepage and update feed", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 		assert.equal(pkg.author.name, "Amos Blomqvist");
 		assert.equal(pkg.author.email, "255718537+amosblomqvist@users.noreply.github.com");
-		assert.equal(pkg.homepage, "https://github.com/amosblomqvist/learnharness");
+		assert.equal(pkg.homepage, "https://github.com/AlexMakesC0de/learnharness");
+		assert.equal(config.publish[0].owner, "AlexMakesC0de");
+		assert.equal(config.publish[0].repo, "learnharness");
 		assert.equal(pkg.desktopName, "learnharness.desktop");
 	});
 });
@@ -176,9 +178,9 @@ describe("workflow action versions", () => {
 	for (const filename of ["ci.yml", "release.yml"]) {
 		it(`${filename} uses supported Action runtimes without changing the app's Node 26`, () => {
 			const workflow = yaml.load(readFileSync(new URL(`../.github/workflows/${filename}`, import.meta.url), "utf8"));
-			const expected = ["actions/checkout@v7", "actions/setup-node@v7"];
+			const expected = ["actions/checkout@v7", "actions/setup-node@v7", "maxim-lobanov/setup-xcode@v1"];
 			if (filename === "release.yml") {
-				expected.push("actions/github-script@v9", "actions/upload-artifact@v7", "maxim-lobanov/setup-xcode@v1");
+				expected.push("actions/github-script@v9", "actions/upload-artifact@v7");
 			}
 			const observed = new Set<string>();
 			for (const job of Object.values(workflow.jobs)) {

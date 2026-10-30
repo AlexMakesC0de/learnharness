@@ -30,6 +30,7 @@ import { SubscriptionConnections } from "./subscription-connections.tsx";
 import { ProviderMenuList } from "./model-menu.tsx";
 import { MenuShell } from "@/components/menu-shell";
 import { notifySettingsSaved } from "@/components/settings-signal";
+import { AppleDictationSettings } from "@/components/settings/apple-dictation";
 import { DictationLanguageSetting } from "@/components/dictation-language";
 
 /** One pi-ai provider with plain API-key auth (the Platform seam —
@@ -482,7 +483,7 @@ export function KeysSection({
 			</SettingsGroup>
 
 			{(["Dictation", "Search"] as const).map((label) => <SettingsGroup key={label} label={label} testid={label === "Dictation" ? "group-dictation" : "group-search"}>
-				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" : status.id !== "DEEPGRAM_API_KEY").map((status) => (
+				{toolRows.filter((status) => label === "Dictation" ? status.id === "DEEPGRAM_API_KEY" && !(typeof window !== "undefined" && window.lh?.platform === "darwin") : status.id !== "DEEPGRAM_API_KEY").map((status) => (
 					<KeyTableRow
 						key={status.id}
 						label={status.info?.label ?? status.id}
@@ -500,7 +501,7 @@ export function KeysSection({
 						testid={`key-${status.id.toLowerCase()}`}
 					/>
 				))}
-				{label === "Dictation" && <>
+				{label === "Dictation" && (typeof window !== "undefined" && window.lh?.platform === "darwin" ? <AppleDictationSettings /> : <>
 					<DictationLanguageSetting />
 					<p data-testid="dictation-setup-hint" className="px-1 text-[11px] leading-relaxed text-muted-foreground/70">
 						Create a <a
@@ -510,7 +511,7 @@ export function KeysSection({
 							className="underline underline-offset-2 hover:text-foreground"
 						>Deepgram API key</a> with the Member role or higher, then add it above.
 					</p>
-				</>}
+				</>)}
 			</SettingsGroup>)}
 
 		</>

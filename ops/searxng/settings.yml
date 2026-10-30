@@ -1,0 +1,21 @@
+# LearnHarness private SearXNG settings, copied into the config directory by
+# `npm run search:start`. No secret here: the server key arrives through the
+# SEARXNG_SECRET environment variable (scripts/local-search.mjs).
+use_default_settings: true
+
+general:
+  instance_name: "LearnHarness search"
+
+server:
+  # Private loopback instance: no bot limiter (it would need Valkey and rate
+  # limits the app's own JSON calls), no public-instance features.
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+search:
+  # The app's adapter reads the JSON API (src/server/search.ts).
+  formats:
+    - html
+    - json

@@ -33,6 +33,7 @@ import type { ModelRole } from "../../config.ts";
 import type { ChatSettings } from "./contracts/chat.ts";
 import type { SearchEngineId } from "./search.ts";
 import { isDictationLanguage, type DictationLanguage } from "./dictation.ts";
+import { isAppleDictationLocale } from "./apple-dictation.ts";
 
 /** The schema version this code understands. Bump ONLY for breaking shape
  *  changes (a field renamed/meaning changed); pure additions never bump. */
@@ -239,6 +240,7 @@ export interface GeneralSettings {
 /** One app-wide dictation preference, shared by every composer. */
 export interface DictationSettings {
 	language?: DictationLanguage;
+	appleLocale?: string;
 }
 
 /** Agent settings — everything about the non-conversation machinery. */
@@ -405,7 +407,7 @@ export interface FactorySettings {
 export const FACTORY_SETTINGS: FactorySettings = {
 	version: CURRENT_SETTINGS_VERSION,
 	general: { autoUpdate: true },
-	dictation: { language: "en" },
+	dictation: { language: "en", appleLocale: "system" },
 	appearance: {
 		mode: "dark",
 		background: null, // the dark default (#141414) lives in the mode's derivation curve
@@ -527,7 +529,7 @@ function sanitizeAgent(raw: Record<string, unknown>): AgentSettings {
 	// record, it just loses the pin and auto-detection resumes).
 	if (raw.search !== null && typeof raw.search === "object" && !Array.isArray(raw.search)) {
 		const engine = (raw.search as Record<string, unknown>).engine;
-		if (engine === "tavily" || engine === "brave") out.search = { engine };
+		if (engine === "tavily" || engine === "brave" || engine === "searxng") out.search = { engine };
 	}
 	// Prober graph tools (wave 7): its own agent-section subsection —
 	// lenient read side (a bad shape drops the key and the default ON
@@ -626,10 +628,12 @@ export function sanitizeUserSettings(raw: unknown): UserSettings | null {
 	}
 	if (r.dictation !== undefined) {
 		const raw = r.dictation;
-		out.dictation = raw !== null && typeof raw === "object" && !Array.isArray(raw) &&
-			isDictationLanguage((raw as Record<string, unknown>).language)
-			? { language: (raw as DictationSettings).language }
-			: {};
+		out.dictation = {};
+		if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
+			const fields = raw as Record<string, unknown>;
+			if (isDictationLanguage(fields.language)) out.dictation.language = fields.language;
+			if (isAppleDictationLocale(fields.appleLocale)) out.dictation.appleLocale = fields.appleLocale;
+		}
 	}
 	if (r.agent !== null && typeof r.agent === "object" && !Array.isArray(r.agent)) {
 		out.agent = sanitizeAgent(r.agent as Record<string, unknown>);

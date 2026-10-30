@@ -27,6 +27,7 @@ import type {
 import { BACKGROUND_MODEL_ROLES, COMPACTION_THRESHOLD_FLOOR, EXTRACTION_CHUNK_TOKENS_FLOOR, MODEL_SLOTS } from "../core/settings.ts";
 import { WRITABLE_TOOL_KEYS } from "../core/pending.ts";
 import { isDictationLanguage } from "../core/dictation.ts";
+import { isAppleDictationLocale } from "../core/apple-dictation.ts";
 
 /** Parsed-or-rejected — `ok: false` carries the 400's error message. */
 export type SettingsBodyResult<T> =
@@ -179,8 +180,8 @@ export function parseAgentSettingsBody(body: unknown): SettingsBodyResult<AgentS
 		const search = asRecord(raw.search);
 		if (!search) return { ok: false, error: "search must be an object" };
 		if (search.engine !== undefined) {
-			if (search.engine !== "tavily" && search.engine !== "brave") {
-				return { ok: false, error: 'search.engine must be "tavily" or "brave"' };
+			if (search.engine !== "tavily" && search.engine !== "brave" && search.engine !== "searxng") {
+				return { ok: false, error: 'search.engine must be "tavily", "brave" or "searxng"' };
 			}
 			settings.search = { engine: search.engine };
 		}
@@ -381,9 +382,9 @@ export function parseCompactionSettingsBody(body: unknown): SettingsBodyResult<C
 export function parseDictationSettingsBody(body: unknown): SettingsBodyResult<DictationSettings> {
 	const raw = asRecord(body);
 	if (!raw) return { ok: false, error: "Invalid JSON body" };
-	if (raw.language === undefined) return { ok: true, settings: {} };
-	if (!isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
-	return { ok: true, settings: { language: raw.language } };
+	if (raw.language !== undefined && !isDictationLanguage(raw.language)) return { ok: false, error: "Unsupported dictation language" };
+	if (raw.appleLocale !== undefined && !isAppleDictationLocale(raw.appleLocale)) return { ok: false, error: "Unsupported Apple dictation language" };
+	return { ok: true, settings: { ...(raw.language === undefined ? {} : { language: raw.language as DictationSettings["language"] }), ...(raw.appleLocale === undefined ? {} : { appleLocale: raw.appleLocale as string }) } };
 }
 
 /** The section→parser map for PUT /api/settings/[section] (the route also

@@ -25,7 +25,12 @@ npm run typecheck    # tsc --noEmit
 node scripts/smoke-web-subscriptions.mjs # after build: offline Next start/dev + reload gate
 
 npm run desktop:dev    # next dev + Electron shell pointed at it
-npm run desktop:dist   # local signed/notarized macOS arm64 build (LH_NOTARY keychain)
+npm run desktop:dist:local # local macOS arm64 DMG/ZIP; no Apple credentials
+npm run desktop:dist   # signed/notarized macOS arm64 build; supply your credentials
+
+npm run search:start   # local SearXNG for web_search on 127.0.0.1:8080 (Docker)
+npm run search:status  # container state + health probe
+npm run search:stop    # remove the SearXNG container (cache volume kept)
 
 # one-shot data scripts (run from the master tree only — data never crosses trees)
 npx tsx --env-file=.env.local scripts/import-notes.ts <dir>   # bulk-import notes → graph
@@ -35,6 +40,18 @@ npx tsx --env-file=.env.local scripts/replay-layout.ts        # re-derive layout
 
 For Windows/Linux packages and the three-OS CI/release flow, see [`docs/desktop-release.md`](desktop-release.md). Native renderer binaries are traced per platform, so release builds run on the target OS, not as cross-builds from macOS.
 
+For local Mac builds, use macOS 26+ with Xcode 26+ selected (`xcode-select -p` and `xcodebuild -version`). Run `npm ci`, then `npm run desktop:dist:local`. Open `dist/mac-arm64/LearnHarness.app`; the DMG and ZIP are also under `dist/`. This uses an ad-hoc signature, skips Apple notarization, and never uploads packages. The command removes previous `dist/` output before rebuilding. See the [macOS build instructions](desktop-release.md#local-macos-builds) for signing and distribution.
+
+### Local web search (SearXNG)
+
+The researcher's `web_search` can use a private [SearXNG](https://docs.searxng.org/) instead of a Tavily or Brave key. It runs in Docker and is free; the searches still go out to public engines (Google, Bing, DuckDuckGo and others) through the container, so it is local, not offline.
+
+1. Install and start Docker Desktop.
+2. Run `npm run search:start`. On first run it creates a random server secret in `~/.config/learnharness/searxng/secret` (owner-only, outside the repo; override the folder with `LH_SEARXNG_HOME`), copies [`ops/searxng/settings.yml`](../ops/searxng/settings.yml) next to it, starts the pinned official image from [`ops/searxng/compose.yml`](../ops/searxng/compose.yml), waits for the health check and runs one test search.
+3. In the app, open Settings → Agent → Search engine and choose **SearXNG (local)**.
+
+The container listens on `127.0.0.1:8080` only, never on the LAN, and restarts with Docker until you run `npm run search:stop`. The app's address for it is fixed, with no URL or key to configure. SearXNG is only used when you choose it: with no choice saved, the app still picks Tavily, then Brave, by key. If SearXNG is chosen but stopped, searches fail with a message saying to start it; the app never switches to a paid engine on its own. Individual upstream engines sometimes refuse requests (for example a DuckDuckGo CAPTCHA); the others still answer, and a search where every engine failed reports that.
+
 ## Environment (`.env.local`)
 
 Secrets and machine-specific paths only. Model choice and thinking budgets are the user's, not the environment's — BYOK model slots live in **settings** (`models` section: strong/cheap/vision, provider + model id + optional thinking level; per-role and per-chat overrides ride on top). The extraction batch threshold is a settings knob too (`graph.extractionChunkTokens`, default 4096, floor 500).
@@ -43,7 +60,7 @@ Secrets and machine-specific paths only. Model choice and thinking budgets are t
 |---|---|
 | `OPENROUTER_API_KEY` | required — all LLM calls go through OpenRouter |
 | `GOOGLE_SEARCH_API_KEY` + `GOOGLE_CSE_ID` | researcher's `web_search` (Google Custom Search) |
-| `DEEPGRAM_API_KEY` | optional — dictation (STT token minting; audio streams browser→Deepgram, never through the server) |
+| `DEEPGRAM_API_KEY` | optional — Windows/Linux/browser dictation (STT token minting; audio streams browser→Deepgram, never through the server) |
 | `CHROME_PATH` | optional system Chrome fallback for demo verification; the app's own browser helper is primary (nothing is downloaded) |
 
 The packaged desktop app takes keys from `userData/auth.json` (BYOK, mode 0600, read/written directly by the server via `LH_AUTH_FILE`). PDFs render natively with pdfjs/Skia; SVGs use resvg.
@@ -185,7 +202,9 @@ pricing-generation step: Pi AI's catalog and public calculator are the authority
 
 **Practice (problem sets).** A node selection resolves to the STORED reasoning chains it fully contains (a chain rides iff every member is selected; unchained nodes ride as singletons); the `/practice` creation dialog picks a birth-session cluster (the graph view's own groups) and freezes its propositions + chains into a self-contained `ProblemSet`. Three named-level axes steer generation (ladder rung 0–4, cue distance 0–2, Theory|Application — never a number to interpolate; defaults Direct exercise · Adjacent context · Theory), plus an optional free-form note the agents weigh but need not follow. Creation has two entries: the cluster picker on `/practice`, or the graph view's chain table — a full-bleed sortable table of every reasoning chain, grouped by birth cluster under the shared top bar, selecting chips, chains, or whole clusters, whose floating selection bar shows the exact `N nodes → M chains` the agents will receive — handing a free-form node selection to the same dialog — and carries the fenced Delete action, making it the graph's management view (whole-cluster cleanup through the same full-death confirm dialog). A partitioner agent covers every chain exactly once, one generator per partition writes problems against the owner's problem-engineering framework (commit-before-pose: statement + solution + rubric together), and grading is **strengthening, not assessment** — one attempt per problem with its own submit button, instant solution/rubric reveal, then a score 0–10 with brief reasoning landing live; nothing ever written back to the graph. Runs are registry-backed background jobs on the activity dock (no steer, never wakes the teacher); sets live in `data/practice`, crash-swept on boot.
 
-**Dictation.** Optional speech-to-text: the server mints short-lived Deepgram tokens; audio streams browser→Deepgram over WebSocket, never through the server. Settings → Providers → Dictation → Language (below the Deepgram key) offers Nova-3's documented monolingual languages/locales or `language=multi` for automatic multilingual transcription. The app-wide `dictation.language` preference persists through the existing settings record and `PUT /api/settings/dictation`; absent preferences resolve to English (`en`). The settings control locks from connecting through stopping, and reconnects keep the run's original language. A shared preference controller publishes confirmed PUT responses to every reader immediately; the confirmed preference is cached across page navigation and reopening Settings, with no polling or per-recording read. Explicit external dictation-settings notifications invalidate the cache, and capture waits for a successful refresh. Navigating away cancels the run, invalidates pending startup/reconnect work and releases its microphone/socket without appending into another page's input. All other streaming parameters remain unchanged. The picker uses the model dropdown's shared `SearchMenuList` and `MenuShell`: the same fuzzy search, arrow navigation, Enter selection, row styling and scrolling. Its compact mono `SettingsMenuTrigger` is shared with Agent and Appearance; a muted setup line below the key and language rows links the Deepgram Console and states the Member-or-higher key-role requirement.
+**Dictation on macOS desktop.** `npm run desktop:dev` and `npm run desktop:dist:local` compile `native/apple-stt/main.swift` with Xcode 26+. The bundled helper uses Apple SpeechTranscriber/SpeechAnalyzer on macOS 26+, without requiring Conduit. The renderer retains microphone capture and its level meter, sends bounded PCM frames through owner-checked Electron IPC and a private stdin pipe, then appends final text once recording stops. Cancel, navigation and window/process teardown discard pending text and stop the helper. The final partial worklet frame is drained before finalization. No Deepgram token is minted on this path, and there is no automatic cloud fallback. `dictation.appleLocale` defaults to `system`; Mac settings list Apple-supported languages separately from the preserved Deepgram `dictation.language`. Run `node scripts/smoke-apple-stt.mjs` for local synthesized-audio recognition and protocol/cancellation checks; pass a packaged helper path to verify its real packaged binary. CI uses `--protocol-only` to avoid waiting for language preparation or synthesizing audio.
+
+**Dictation on Windows/Linux/browser.** Optional speech-to-text: the server mints short-lived Deepgram tokens; audio streams browser→Deepgram over WebSocket, never through the server. Settings → Providers → Dictation → Language (below the Deepgram key) offers Nova-3's documented monolingual languages/locales or `language=multi` for automatic multilingual transcription. The app-wide `dictation.language` preference persists through the existing settings record and `PUT /api/settings/dictation`; absent preferences resolve to English (`en`). The settings control locks from connecting through stopping, and reconnects keep the run's original language. A shared preference controller publishes confirmed PUT responses to every reader immediately; the confirmed preference is cached across page navigation and reopening Settings, with no polling or per-recording read. Explicit external dictation-settings notifications invalidate the cache, and capture waits for a successful refresh. Navigating away cancels the run, invalidates pending startup/reconnect work and releases its microphone/socket without appending into another page's input. All other streaming parameters remain unchanged. The picker uses the model dropdown's shared `SearchMenuList` and `MenuShell`: the same fuzzy search, arrow navigation, Enter selection, row styling and scrolling. Its compact mono `SettingsMenuTrigger` is shared with Agent and Appearance; a muted setup line below the key and language rows links the Deepgram Console and states the Member-or-higher key-role requirement.
 
 ## Testing
 

@@ -40,6 +40,13 @@ ipcRenderer.on("lh:open-settings", (_event, section) => {
 
 contextBridge.exposeInMainWorld("lh", {
 	platform: process.platform,
+	...(process.platform === "darwin" ? { appleDictation: {
+		capabilities: () => ipcRenderer.invoke("lh:dictation", { op: "capabilities" }),
+		start: (locale) => ipcRenderer.invoke("lh:dictation", { op: "start", locale }),
+		append: (sessionId, frame) => ipcRenderer.invoke("lh:dictation", { op: "append", sessionId, frame }),
+		finish: (sessionId) => ipcRenderer.invoke("lh:dictation", { op: "finish", sessionId }),
+		cancel: () => ipcRenderer.invoke("lh:dictation", { op: "cancel" }),
+	} } : {}),
 	...(process.argv?.includes("--lh-web-subscriptions") ? {
 		subscriptionTransport: "web",
 		openSubscriptionBrowser: (action) => ipcRenderer.invoke("lh:subscriptions:web-browser", action),

@@ -6,6 +6,7 @@ import { useSettingsDialog } from "@/components/settings/settings-dialog";
 import { Hint } from "@/components/ui/hint";
 import { deepgramListenUrl, type DictationLanguage } from "@/src/core";
 import { useDictationLanguage } from "@/components/dictation-preference";
+import { useNativeDictation } from "@/components/native-dictation";
 import { setDictationActive } from "@/components/dictation-state";
 export { isDictationActive } from "@/components/dictation-state";
 
@@ -271,7 +272,27 @@ export type Dictation = {
  * question waits.
  */
 export function useDictation({ append }: { append: (text: string) => void }): Dictation {
-	const { getLanguage } = useDictationLanguage();
+	const nativeMac = typeof window !== "undefined" && window.lh?.platform === "darwin";
+	const cloud = useCloudDictation({ append, enabled: !nativeMac });
+	const native = useNativeDictation({ append: text => (questionTarget ?? append)(text), enabled: nativeMac, audioGraph: ensureAudioGraph });
+	const dictation = nativeMac ? native : cloud;
+	useEffect(() => {
+		dictationFinisher = dictation.finish;
+		return () => { if (dictationFinisher === dictation.finish) dictationFinisher = null; };
+	}, [dictation.finish]);
+	useEffect(() => {
+		window.addEventListener("lh:kbd-toggle-dictation", dictation.toggle);
+		window.addEventListener("lh:kbd-cancel-dictation", dictation.cancel);
+		return () => {
+			window.removeEventListener("lh:kbd-toggle-dictation", dictation.toggle);
+			window.removeEventListener("lh:kbd-cancel-dictation", dictation.cancel);
+		};
+	}, [dictation.toggle, dictation.cancel]);
+	return dictation;
+}
+
+function useCloudDictation({ append, enabled }: { append: (text: string) => void; enabled: boolean }): Dictation {
+	const { getLanguage } = useDictationLanguage(enabled);
 	const [phase, setPhase] = useState<DictationPhase>("idle");
 	const [error, setError] = useState<string | null>(null);
 	/** Latest RMS from the worklet — the meter samples this (dictate pattern). */
@@ -562,14 +583,6 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 		});
 	}, [phase, stop]);
 
-	// Publish finish() for the sibling subtrees (the pending question's
-	// dock) — registered for as long as this page owns the hook.
-	useEffect(() => {
-		dictationFinisher = finish;
-		return () => {
-			if (dictationFinisher === finish) dictationFinisher = null;
-		};
-	}, [finish]);
 
 	const toggle = useCallback(() => {
 		if (phase === "idle") void start();
@@ -582,6 +595,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 	// page owns ONE hook instance, and only the mounted page's listener is
 	// attached.
 	useEffect(() => {
+		if (!enabled) return;
 		warmTokens.refresh(); // pre-mint at mount (mitigation D) — silent if keyless
 		return () => {
 			// Navigation cancels capture: invalidate every pending await before
@@ -589,15 +603,7 @@ export function useDictation({ append }: { append: (text: string) => void }): Di
 			bufferRef.current = [];
 			cleanup(false);
 		};
-	}, [cleanup]);
-	useEffect(() => {
-		window.addEventListener("lh:kbd-toggle-dictation", toggle);
-		return () => window.removeEventListener("lh:kbd-toggle-dictation", toggle);
-	}, [toggle]);
-	useEffect(() => {
-		window.addEventListener("lh:kbd-cancel-dictation", cancel);
-		return () => window.removeEventListener("lh:kbd-cancel-dictation", cancel);
-	}, [cancel]);
+	}, [cleanup, enabled]);
 
 	return {
 		phase,

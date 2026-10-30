@@ -193,6 +193,7 @@ describe("agent section compose helpers — the replace-whole PUT body", () => {
 
 	it("composeSearchEngine: the explicit preference writes agent.search.engine", () => {
 		assert.deepEqual(composeSearchEngine(undefined, "brave").search, { engine: "brave" });
+		assert.deepEqual(composeSearchEngine({ tools: { demo: true } }, "searxng"), { tools: { demo: true }, search: { engine: "searxng" } });
 	});
 
 	it("composePromptSwitch: on = explicit true, off = key REMOVED (absent = off)", () => {
