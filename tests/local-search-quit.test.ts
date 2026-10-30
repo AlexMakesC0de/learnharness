@@ -12,6 +12,8 @@ import { describe, it } from "node:test";
 import { dockerCandidates } from "../src/server/local-search.ts";
 
 const require = createRequire(import.meta.url);
+/** Repo text as LF: Windows runners check files out with CRLF. */
+const source = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const cleanupModule = require("../electron/local-search.cjs") as {
 	createLocalSearchCleanup: (options: Record<string, unknown>) => { down(options?: { after?: Promise<unknown> }): Promise<boolean> };
 	dockerCandidates: typeof dockerCandidates;
@@ -115,7 +117,7 @@ describe("createLocalSearchCleanup", () => {
 });
 
 describe("wiring", () => {
-	const main = readFileSync(new URL("../electron/main.cjs", import.meta.url), "utf8");
+	const main = source("../electron/main.cjs");
 
 	it("the server child learns where the bundled compose files and the secret live", () => {
 		assert.match(main, /LH_SEARXNG_DIR: searxngDir\(\)/);
@@ -149,9 +151,9 @@ describe("wiring", () => {
 	});
 
 	it("the package ships the compose files; the container no longer restarts on its own", () => {
-		const builder = readFileSync(new URL("../electron-builder.yml", import.meta.url), "utf8");
+		const builder = source("../electron-builder.yml");
 		assert.match(builder, /- from: ops\/searxng\n\s+to: searxng\n\s+filter:\n\s+- compose\.yml\n\s+- settings\.yml/);
-		const compose = readFileSync(new URL("../ops/searxng/compose.yml", import.meta.url), "utf8");
+		const compose = source("../ops/searxng/compose.yml");
 		assert.doesNotMatch(compose, /^\s*restart:/m);
 		// Only the settings file, read-only: the entrypoint chowns a mounted
 		// config folder, which would lock the app out of it on Linux.
