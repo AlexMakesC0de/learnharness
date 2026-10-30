@@ -46,11 +46,21 @@ For local Mac builds, use macOS 26+ with Xcode 26+ selected (`xcode-select -p` a
 
 The researcher's `web_search` can use a private [SearXNG](https://docs.searxng.org/) instead of a Tavily or Brave key. It runs in Docker and is free; the searches still go out to public engines (Google, Bing, DuckDuckGo and others) through the container, so it is local, not offline.
 
+**In the desktop app** there are two steps, and the app does the rest:
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+2. Open Settings → Agent → Search engine and choose **SearXNG (local)**.
+
+The app then opens Docker Desktop in the background if it is closed, downloads the pinned SearXNG image the first time (about 380 MB), starts it and shows each step under the menu, ending in "Ready". Every later launch starts it again while SearXNG is the chosen engine; quitting the app (Cmd+Q on macOS) removes the container, and choosing another engine removes it straight away. Docker Desktop, your other containers and the downloaded image are left alone. If Docker is missing, Settings links the download; if a start fails (for example port 8080 is taken), it says why and offers Retry. On Linux the app does not start the Docker service itself and asks you to. How it works: the desktop server runs the start/stop (`src/server/local-search.ts`, enabled by `LH_SEARXNG_DIR`/`LH_SEARXNG_HOME` from the Electron shell), the shell removes the container on quit (`electron/local-search.cjs`, capped at 10 seconds), and the secret lives in the app's data folder (`userData/searxng/secret`, owner-only).
+
+**In web/dev** (`npm run dev`, `npm run desktop:dev`) nothing starts automatically:
+
 1. Install and start Docker Desktop.
 2. Run `npm run search:start`. On first run it creates a random server secret in `~/.config/learnharness/searxng/secret` (owner-only, outside the repo; override the folder with `LH_SEARXNG_HOME`), copies [`ops/searxng/settings.yml`](../ops/searxng/settings.yml) next to it, starts the pinned official image from [`ops/searxng/compose.yml`](../ops/searxng/compose.yml), waits for the health check and runs one test search.
 3. In the app, open Settings → Agent → Search engine and choose **SearXNG (local)**.
+4. Run `npm run search:stop` when you are done; it has no restart policy, so it also goes away when Docker restarts.
 
-The container listens on `127.0.0.1:8080` only, never on the LAN, and restarts with Docker until you run `npm run search:stop`. The app's address for it is fixed, with no URL or key to configure. SearXNG is only used when you choose it: with no choice saved, the app still picks Tavily, then Brave, by key. If SearXNG is chosen but stopped, searches fail with a message saying to start it; the app never switches to a paid engine on its own. Individual upstream engines sometimes refuse requests (for example a DuckDuckGo CAPTCHA); the others still answer, and a search where every engine failed reports that.
+Either way the container listens on `127.0.0.1:8080` only, never on the LAN, and both paths share the `learnharness-search` Compose project. The app's address for it is fixed, with no URL or key to configure. SearXNG is only used when you choose it: with no choice saved, the app still picks Tavily, then Brave, by key. If SearXNG is chosen but stopped, searches fail with a message saying to start it; the app never switches to a paid engine on its own. Individual upstream engines sometimes refuse requests (for example a DuckDuckGo CAPTCHA); the others still answer, and a search where every engine failed reports that.
 
 ## Environment (`.env.local`)
 
