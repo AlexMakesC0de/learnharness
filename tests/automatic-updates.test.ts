@@ -100,7 +100,7 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 			};
 			return mainRequire(id);
 		},
-		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", on() {} },
+		process: { argv: [], env: { LH_DEV_URL: "http://127.0.0.1:9000" }, platform: "darwin", resourcesPath: "/fixture/resources", on() {} },
 		__dirname: path.dirname(mainFile), URL,
 		setInterval: (callback: () => void, delay: number) => intervals.push({ callback, delay }),
 		setTimeout() {},
@@ -268,6 +268,19 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		sender.mainFrame.url = "https://untrusted.invalid/";
 		assert.throws(() => check(event), /Untrusted/);
 		assert.equal(f.updater.checks, 1);
+	});
+
+	it("Apple dictation IPC rejects foreign frames and windows before reading capabilities", async () => {
+		const f = fixture(); await f.run("main()");
+		const sender = f.windows[0]!.webContents;
+		const control = f.handles.get("lh:dictation") as (event: unknown, command: unknown) => Promise<{ available: boolean }>;
+		const event = { sender, senderFrame: sender.mainFrame };
+		assert.equal((await control(event, { op: "capabilities" })).available, false);
+		for (const bad of [{ sender: {}, senderFrame: sender.mainFrame }, { sender, senderFrame: { url: sender.mainFrame.url } }]) {
+			await assert.rejects(control(bad, { op: "capabilities" }), /Untrusted/);
+		}
+		sender.mainFrame.url = "https://untrusted.invalid/";
+		await assert.rejects(control(event, { op: "start", locale: "system" }), /Untrusted/);
 	});
 
 	it("menu restores/focuses a minimized window, opens General, and manually checks while OFF", async () => {

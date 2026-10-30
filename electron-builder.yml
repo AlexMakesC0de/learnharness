@@ -99,9 +99,13 @@ extraResources:
     filter:
       - "standalone/**/*"
 mac:
+  binaries:
+    - Contents/Resources/apple-stt
   # The backend's --require runs before Next loads. Keep this resource
   # outside app.asar so early Node-mode loading needs no ASAR support.
   extraResources:
+    - from: build/apple-stt/apple-stt
+      to: apple-stt
     - from: electron/server-title-guard.cjs
       to: server-title-guard.cjs
   icon: build/icon.icon

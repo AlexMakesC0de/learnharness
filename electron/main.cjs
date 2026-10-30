@@ -31,6 +31,7 @@ const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cj
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
+const { createAppleDictation } = require("./apple-dictation.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -135,6 +136,7 @@ if (process.argv.includes("--browser-service")) {
 }
 
 let serverProcess = null;
+let appleDictation = null;
 let chatgpt = null;
 let chatgptChild = null;
 let subscriptions = null;
@@ -340,6 +342,10 @@ function createWindow(url) {
 
 	trustedAppWindows.add(win);
 	win.once("closed", () => trustedAppWindows.delete(win));
+	const dictationOwner = win.webContents.id;
+	win.webContents.on("did-start-navigation", (_event, _target, _inPlace, isMainFrame) => { if (isMainFrame) appleDictation?.cancel(dictationOwner); });
+	win.webContents.on("destroyed", () => appleDictation?.cancel(dictationOwner));
+	win.webContents.on("render-process-gone", () => appleDictation?.cancel(dictationOwner));
 	const allowedOrigin = () => new URL(url).origin;
 	// Deny-by-default; the ONLY grants are media (mic/STT groundwork) and
 	// clipboard-sanitized-write — the copy affordances in the transcript
@@ -640,7 +646,7 @@ async function main() {
 	});
 
 	// The child must not outlive us — cover every quit path.
-	app.on("before-quit", killServer);
+	app.on("before-quit", () => { appleDictation?.dispose(); killServer(); });
 	process.on("exit", killServer);
 	process.on("SIGHUP", killServer);
 
@@ -651,6 +657,10 @@ async function main() {
 	// (guards, menu, single instance).
 	const devUrl = process.env.LH_DEV_URL;
 	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
+	if (process.platform === "darwin") appleDictation = createAppleDictation({
+		binary: app.isPackaged ? path.join(process.resourcesPath, "apple-stt") : path.join(__dirname, "..", "build", "apple-stt", "apple-stt"),
+		systemVersion: process.getSystemVersion?.() ?? "0",
+	});
 	if (!devUrl) {
 		desktopAPISecret = randomBytes(32).toString("hex");
 		const ownedOrigin = new URL(url).origin;
@@ -687,6 +697,17 @@ async function main() {
 
 	// Renderer controls contain no token/URL/code operation. The separate server
 	// child is the only recipient of credential leases over inherited IPC.
+	ipcMain.handle("lh:dictation", async (event, command) => {
+		if (!appleDictation || !trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) throw new Error("Untrusted dictation request.");
+		const owner = event.sender.id;
+		if (command?.op === "capabilities") return appleDictation.capabilities();
+		if (command?.op === "start" && typeof command.locale === "string" && command.locale.length <= 50) return appleDictation.start(owner, command.locale);
+		if (command?.op === "cancel") return appleDictation.cancel(owner);
+		if (typeof command?.sessionId !== "string" || command.sessionId.length > 100) throw new Error("Invalid dictation session.");
+		if (command.op === "append") return appleDictation.append(owner, command.sessionId, command.frame);
+		if (command.op === "finish") return appleDictation.finish(owner, command.sessionId);
+		throw new Error("Unsupported dictation operation.");
+	});
 	ipcMain.handle("lh:chatgpt:control", async (event, command) => {
 		if (!trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) || !trustedSender(event, new URL(url).origin, BrowserWindow)) return { error: "Untrusted desktop request." };
 		if (!chatgpt || !serverProcess?.connected) return { available: false, pending: false, activeId: null, accounts: [], error: "ChatGPT sign-in requires the desktop app's private server connection. Browser-only and externally launched development servers keep API-key connections." };

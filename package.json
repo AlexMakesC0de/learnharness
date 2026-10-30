@@ -19,9 +19,9 @@
 		"test": "node scripts/run-tests.mjs",
 		"lint": "eslint .",
 		"typecheck": "tsc --noEmit",
-		"desktop:dev": "concurrently -k \"next dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
+		"desktop:dev": "node scripts/build-apple-stt.mjs && concurrently -k \"next dev\" \"LH_DEV_URL=http://localhost:3000 electron .\"",
 		"dev:fresh": "bash scripts/dev-fresh.sh",
-		"desktop:prepare": "rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs --electron",
+		"desktop:prepare": "node scripts/build-apple-stt.mjs && rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs --electron",
 		"desktop:dist": "node scripts/check-mac-notarization.mjs && npm run desktop:prepare && electron-builder --mac --arm64 --publish never -c.forceCodeSigning=true",
 		"desktop:dist:local": "npm run desktop:prepare && node scripts/package-local-mac.mjs"
 	},

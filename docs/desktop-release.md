@@ -18,14 +18,14 @@ Icons are per-platform (2026-10-13): macOS compiles the Icon Composer document `
 
 Each OS installs its own dependencies and builds its own Next standalone tree:
 
-1. `npm ci`
+1. `npm ci`; on macOS, `node scripts/build-apple-stt.mjs` compiles the arm64 Apple speech helper with Xcode 26+.
 2. Native PDF/SVG renderer tests for that OS, running in Electron's bundled Node (no display needed).
 3. `npm run build` (`output: "standalone"`).
 4. `node scripts/build-server.mjs` — copy static assets, refuse leaked data/keys, remove only standalone-root `dist/` and `node_modules/electron/` (old installers and the development runtime), check prompt assets. Runtime dependencies' own `dist/` directories and native renderer binaries stay intact.
 5. `node scripts/smoke-server.mjs --electron` — boot the standalone server in Electron's bundled Node, using empty temporary data/auth, then check the home route and GET-only APIs.
 6. `npx electron-builder <platform flags> --publish <policy>`.
 
-The shell/updater live in `app.asar`; the standalone server and native renderer binaries ship unpacked as `extraResources`. **Do not cross-build the server payload.** Next traces the build machine's native binaries, so a macOS-built standalone tree is not a Windows/Linux payload.
+The Apple speech helper ships as `Contents/Resources/apple-stt` only on macOS and is explicitly included in distribution signing. Local ad-hoc signing covers it as part of the app. The shell/updater live in `app.asar`; the standalone server and native renderer binaries ship unpacked as `extraResources`. **Do not cross-build the server payload.** Next traces the build machine's native binaries, so a macOS-built standalone tree is not a Windows/Linux payload.
 
 ### Local macOS builds
 

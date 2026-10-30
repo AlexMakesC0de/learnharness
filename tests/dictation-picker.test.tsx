@@ -28,12 +28,13 @@ async function search(value: string, element = input()) {
 	});
 }
 
-async function fixture(failRead = false) {
+async function fixture(failRead = false, nativeMac = false) {
 	const { window: win, document: doc } = parseHTML("<html><body><div id='root'></div></body></html>");
 	let active: Element = doc.body;
 	Object.defineProperty(doc, "activeElement", { get: () => active });
 	Object.assign(doc, { oninput: null });
 	Object.assign(win, { innerWidth: 1280, innerHeight: 900 });
+	if (nativeMac) Object.assign(win, { lh: { platform: "darwin", expandWindow() {}, appleDictation: { capabilities: async () => ({ available: true, locales: [{ id: "en-AU", label: "English (Australia)" }, { id: "fr-FR", label: "French (France)" }], defaultLocale: "en-AU" }) } } });
 	win.HTMLElement.prototype.focus = function () { active = this; };
 	win.HTMLElement.prototype.scrollIntoView = () => {};
 	win.HTMLElement.prototype.getBoundingClientRect = () => ({ top: 200, bottom: 230, left: 400, right: 500, width: 100, height: 30, x: 400, y: 200, toJSON() {} });
@@ -297,4 +298,14 @@ test("clearing each search restores the complete catalog order with Multilingual
 		await search("");
 		assert.deepEqual(order(), expected, `catalog order after clearing ${query}`);
 	}
+});
+
+test("Mac provider settings show Apple languages and preserve the separate Deepgram preference", async () => {
+ const f=await fixture(false,true);
+ f.state.keys=[{id:"DEEPGRAM_API_KEY",info:AUTH_KEYS.find(key=>key.id==="DEEPGRAM_API_KEY")!,present:false,masked:null,source:"none",shadowedByEnv:false}];
+ const {KeysSection}=await import("../components/settings/keys-section.tsx");await f.render(<KeysSection/>);
+ assert.ok(byTest("dictation-apple-provider"));assert.equal(byTest("key-deepgram_api_key"),null);
+ assert.match(byTest("dictation-setup-hint").textContent!,/on this Mac/);
+ await click(trigger());assert.equal(byTest("dictation-language-multi"),null);await click(byTest("dictation-language-fr-FR"));
+ assert.equal(f.state.record.dictation?.appleLocale,"fr-FR");assert.equal(f.state.record.dictation?.language,"en");
 });

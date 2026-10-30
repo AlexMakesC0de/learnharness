@@ -178,9 +178,9 @@ describe("workflow action versions", () => {
 	for (const filename of ["ci.yml", "release.yml"]) {
 		it(`${filename} uses supported Action runtimes without changing the app's Node 26`, () => {
 			const workflow = yaml.load(readFileSync(new URL(`../.github/workflows/${filename}`, import.meta.url), "utf8"));
-			const expected = ["actions/checkout@v7", "actions/setup-node@v7"];
+			const expected = ["actions/checkout@v7", "actions/setup-node@v7", "maxim-lobanov/setup-xcode@v1"];
 			if (filename === "release.yml") {
-				expected.push("actions/github-script@v9", "actions/upload-artifact@v7", "maxim-lobanov/setup-xcode@v1");
+				expected.push("actions/github-script@v9", "actions/upload-artifact@v7");
 			}
 			const observed = new Set<string>();
 			for (const job of Object.values(workflow.jobs)) {
