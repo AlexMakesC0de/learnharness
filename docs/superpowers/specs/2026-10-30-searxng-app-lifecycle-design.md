@@ -27,7 +27,7 @@ The server owns the lifecycle because it already knows the chosen engine and alr
   2. `starting-docker`: if `docker info` fails, open Docker Desktop once and poll `docker info` for up to 2 minutes. On timeout: `error`.
   3. `downloading`: if the pinned image isn't present locally (`docker image inspect`), pull it. This happens on first use only.
   4. `starting`: create the secret (0600) and copy `settings.yml` under `LH_SEARXNG_HOME`, then `docker compose -f <bundled compose.yml> up -d` and poll `/healthz` for up to 60 s.
-  5. `ready`, or `error` with a plain message. Mapped cases: port 8080 already in use, Compose failure (first stderr line), health timeout.
+  5. `ready`, or `error` with a plain message. Mapped cases: port 8080 already in use, Compose failure (last stderr line; Compose prints progress before the error), health timeout.
 - **`down`.** `docker compose ... down` for the `learnharness-search` project only. Never removes images or other projects.
 - **Status.** `GET /api/search` gains `local?: { state, message }` while the engine is `searxng`. `POST /api/search/local` re-runs `ensure`; this is the Retry button.
 
