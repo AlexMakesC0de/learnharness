@@ -48,12 +48,14 @@ function createLocalSearchCleanup({
 
 	return {
 		/** Resolves true once the container is gone; false when skipped,
-		 *  failed or past the cap. Never rejects. */
-		down() {
-			if (!searxngChosen()) return Promise.resolve(false);
+		 *  failed or past the cap. Never rejects. `after` (SearXNG users only)
+		 *  holds the removal until the server has stopped its docker work. */
+		async down({ after } = {}) {
+			if (!searxngChosen()) return false;
+			await after?.catch(() => {});
 			const candidates = dockerCandidates(platform, home, envPath);
 			const docker = candidates.find((file) => exists(file));
-			if (!docker) return Promise.resolve(false);
+			if (!docker) return false;
 			const p = platform === "win32" ? path.win32 : path.posix;
 			const searchPath = [...new Set(candidates.map((file) => p.dirname(file))), envPath].filter(Boolean).join(p.delimiter);
 			return new Promise((resolve) => {

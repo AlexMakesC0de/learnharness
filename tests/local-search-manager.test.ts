@@ -5,11 +5,14 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
 	createLocalSearch,
 	dockerCandidates,
 	localSearchStatus,
+	runCommand,
+	stopRunningCommands,
 	syncLocalSearch,
 	type LocalSearchDeps,
 	type LocalSearchState,
@@ -222,6 +225,52 @@ describe("createLocalSearch — sync", () => {
 		healthy = true;
 		await h.manager.retry();
 		assert.equal(h.manager.status().state, "ready");
+	});
+
+	it("retry re-reads the choice after the in-flight start: a newer engine wins", async () => {
+		const h = harness();
+		let chosen = true;
+		const first = h.manager.sync(true);
+		const retried = h.manager.retry(() => chosen);
+		chosen = false;
+		void h.manager.sync(false);
+		await Promise.all([first, retried]);
+		assert.equal(h.manager.status().state, "off");
+		assert.equal(h.dockerArgs().filter((a) => a.endsWith("up -d")).length, 1, "no second start");
+	});
+
+	it("current(): an idle manager starts on the first read; a busy or settled one is left alone", async () => {
+		const h = harness();
+		assert.equal(h.manager.current().state, "checking", "the boot request never arrived");
+		await h.manager.sync(true);
+		assert.equal(h.manager.current().state, "ready");
+		assert.equal(h.dockerArgs().filter((a) => a.endsWith("up -d")).length, 1);
+	});
+});
+
+describe("runCommand", () => {
+	// Order matters: the stop is one-way, as it is in the quitting server.
+	it("captures output and the exit code, with no shell", async () => {
+		const out = await runCommand(process.execPath, ["-e", "process.stdout.write('a;b'); process.stderr.write('e'); process.exit(3)"], {
+			env: process.env,
+			timeoutMs: 10_000,
+		});
+		assert.deepEqual(out, { code: 3, stdout: "a;b", stderr: "e" });
+	});
+
+	it("on quit, stopRunningCommands ends a docker call in flight and refuses later ones", async () => {
+		const started = Date.now();
+		const run = runCommand(process.execPath, ["-e", "setTimeout(() => {}, 30_000)"], { env: process.env, timeoutMs: 60_000 });
+		setTimeout(stopRunningCommands, 50);
+		assert.notEqual((await run).code, 0);
+		assert.ok(Date.now() - started < 10_000);
+		const next = await runCommand(process.execPath, ["-e", "process.exit(0)"], { env: process.env, timeoutMs: 10_000 });
+		assert.deepEqual(next, { code: 1, stdout: "", stderr: "the app is quitting" }, "a later step (pull, compose up) must not start");
+	});
+
+	it("the desktop manager stops its commands on the SIGTERM itself, not only on exit", () => {
+		const source = readFileSync(new URL("../src/server/local-search.ts", import.meta.url), "utf8");
+		assert.match(source, /process\.once\("SIGTERM", stopRunningCommands\);\s+process\.once\("exit", stopRunningCommands\);/);
 	});
 });
 

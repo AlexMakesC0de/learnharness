@@ -4,6 +4,11 @@
 # `npm run search:start|stop|status` (scripts/local-search.mjs). Both supply
 # LH_SEARXNG_SECRET and LH_SEARXNG_CONFIG_DIR from outside the repo. No
 # restart policy: a crashed or force-quit app must not leave it coming back.
+# Only settings.yml is mounted, read-only: a mounted config folder would be
+# chowned to the container's user by the entrypoint, and on Linux the next
+# start could no longer copy settings.yml into it. /etc/searxng itself is a
+# named volume: the image declares it a VOLUME, and an anonymous one would be
+# left behind by every `down`.
 name: learnharness-search
 
 services:
@@ -15,7 +20,8 @@ services:
       SEARXNG_BASE_URL: http://127.0.0.1:8080/
       SEARXNG_SECRET: ${LH_SEARXNG_SECRET:?LH_SEARXNG_SECRET is required}
     volumes:
-      - ${LH_SEARXNG_CONFIG_DIR:?LH_SEARXNG_CONFIG_DIR is required}:/etc/searxng
+      - search-config:/etc/searxng
+      - ${LH_SEARXNG_CONFIG_DIR:?LH_SEARXNG_CONFIG_DIR is required}/settings.yml:/etc/searxng/settings.yml:ro
       - search-cache:/var/cache/searxng
     security_opt:
       - no-new-privileges:true
@@ -33,4 +39,5 @@ services:
         max-file: "3"
 
 volumes:
+  search-config:
   search-cache:

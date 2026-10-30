@@ -1,6 +1,6 @@
 # SearXNG App Lifecycle Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** In the desktop app, choosing "SearXNG (local)" starts SearXNG (opening Docker Desktop if needed), every launch starts it again, and quitting removes its container.
 
@@ -34,7 +34,7 @@
 
 **Files:** Create `src/server/local-search.ts`, `tests/local-search-manager.test.ts`.
 
-- [ ] **Step 1: Write failing tests** with a scripted fake runner. `run` receives `(command, args)` and returns `{code, stdout, stderr}` per a table; `sleep` advances a fake clock; `fetch` answers `/healthz`.
+- [x] **Step 1: Write failing tests** with a scripted fake runner. `run` receives `(command, args)` and returns `{code, stdout, stderr}` per a table; `sleep` advances a fake clock; `fetch` answers `/healthz`.
 
 Cases (each asserts final `status()` and the commands run):
 1. no docker candidate exists → `missing-docker`, no command run.
@@ -51,9 +51,9 @@ Cases (each asserts final `status()` and the commands run):
 12. `retry()` after `error` re-runs ensure.
 13. `dockerCandidates("darwin", "/Users/u", "/a:/b")` lists the fixed macOS paths, then `/a/docker`, `/b/docker`.
 
-- [ ] **Step 2:** `node --import tsx --test tests/local-search-manager.test.ts` → FAIL (module missing).
+- [x] **Step 2:** `node --import tsx --test tests/local-search-manager.test.ts` → FAIL (module missing).
 
-- [ ] **Step 3: Implement** `createLocalSearch(deps)` returning `{ status(), sync(wanted), retry() }`:
+- [x] **Step 3: Implement** `createLocalSearch(deps)` returning `{ status(), sync(wanted), retry() }`:
   - `ensure`: checking → find docker → `info --format {{.ServerVersion}}` (15 s) → (non-linux) open Docker, poll every 2 s ≤ 120 s → `image inspect` the `image:` ref parsed from compose.yml → `pull` (20 min) if missing → `prepareConfig()` → `compose -f … up -d` (120 s) → poll `/healthz` every 1 s ≤ 60 s.
   - Error text uses the last non-empty stderr line (Compose prints progress to stderr first), truncated to 200 chars.
   - `down`: `compose -p learnharness-search down` (60 s) → `off`.
@@ -63,14 +63,14 @@ Cases (each asserts final `status()` and the commands run):
   - `syncLocalSearch({retry?})` reads `effectiveSettings().agent.search?.engine === "searxng"`. `localSearchStatus()` returns `null` unless the manager exists and SearXNG is chosen.
   - `prepareConfig` (node default): mkdir `home/config` 0700, create `home/secret` (32 random bytes hex, 0600) if absent, copy `settings.yml`.
 
-- [ ] **Step 4:** Rerun → PASS. **Step 5:** Commit `feat: server-side manager for app-run SearXNG`.
+- [x] **Step 4:** Rerun → PASS. **Step 5:** Commit `feat: server-side manager for app-run SearXNG`.
 
 ### Task 2: Server wiring
 
 **Files:** `src/server/index.ts`, `instrumentation.ts`, `app/api/settings/[section]/route.ts`, `app/api/search/route.ts`, `app/api/search/local/route.ts`.
 
-- [ ] Export `syncLocalSearch`, `localSearchStatus`, and the types from the barrel.
-- [ ] `instrumentation.ts`:
+- [x] Export `syncLocalSearch`, `localSearchStatus`, and the types from the barrel.
+- [x] `instrumentation.ts`:
   ```ts
   export async function register() {
   	if (process.env.NEXT_RUNTIME !== "nodejs") return;
@@ -78,17 +78,17 @@ Cases (each asserts final `status()` and the commands run):
   	void syncLocalSearch();
   }
   ```
-- [ ] Settings PUT: after `writeSettingsRecord(next)`, `if (section === "agent") void syncLocalSearch();`.
-- [ ] `GET /api/search`: `{ ...searchStatus(), ...(local ? { local } : {}) }`.
-- [ ] `POST /api/search/local`: `await syncLocalSearch({ retry: true })` is NOT awaited (it can take minutes). Kick it off, then return `{ local: localSearchStatus() }`.
-- [ ] Test (in the manager test file): without `LH_SEARXNG_DIR`, `localSearchStatus()` is `null` and `syncLocalSearch()` resolves with no effect.
-- [ ] Typecheck + lint, commit `feat: run SearXNG sync at boot and on engine change`.
+- [x] Settings PUT: after `writeSettingsRecord(next)`, `if (section === "agent") void syncLocalSearch();`.
+- [x] `GET /api/search`: `{ ...searchStatus(), ...(local ? { local } : {}) }`.
+- [x] `POST /api/search/local`: `await syncLocalSearch({ retry: true })` is NOT awaited (it can take minutes). Kick it off, then return `{ local: localSearchStatus() }`.
+- [x] Test (in the manager test file): without `LH_SEARXNG_DIR`, `localSearchStatus()` is `null` and `syncLocalSearch()` resolves with no effect.
+- [x] Typecheck + lint, commit `feat: run SearXNG sync at boot and on engine change`.
 
 ### Task 3: Electron quit cleanup and packaging
 
 **Files:** `electron/local-search.cjs`, `electron/main.cjs`, `electron-builder.yml`, `ops/searxng/compose.yml`, `tests/local-search-quit.test.ts`.
 
-- [ ] **Failing tests:**
+- [x] **Failing tests:**
   - `createLocalSearchCleanup({settingsFile, platform, home, envPath, exists, spawn, read, timeoutMs}).down()`:
     - engine not searxng (or unreadable settings) → resolves `false`, no spawn
     - searxng chosen → spawns `<docker> compose -p learnharness-search down` and resolves `true` on exit 0
@@ -100,42 +100,42 @@ Cases (each asserts final `status()` and the commands run):
     - `before-quit` calls `event.preventDefault()` only once before `localSearchCleanup.down()`
     - `installUpdateNow` awaits the cleanup before `quitAndInstall`
   - `electron-builder.yml` ships `ops/searxng` to `searxng`; compose has no `restart:`.
-- [ ] **Implement** `electron/local-search.cjs` (fully mirrors the candidates; the spawned PATH is built as on the server).
-- [ ] `main.cjs` changes:
+- [x] **Implement** `electron/local-search.cjs` (fully mirrors the candidates; the spawned PATH is built as on the server).
+- [x] `main.cjs` changes:
   - Create the cleanup only when main spawned the server (`!devUrl`).
   - `before-quit`: dispose dictation, `killServer()`, then once: `preventDefault`, `down().finally(() => app.quit())`.
   - `installUpdateNow`: `killServer()`, then `await localSearchCleanup?.down()`, mark cleaned, then `quitAndInstall()`.
-- [ ] Builder `extraResources`: `{ from: ops/searxng, to: searxng, filter: [compose.yml, settings.yml] }`.
-- [ ] Remove `restart: unless-stopped` from compose.
-- [ ] Tests pass, commit `feat: remove app-run SearXNG when the desktop app quits`.
+- [x] Builder `extraResources`: `{ from: ops/searxng, to: searxng, filter: [compose.yml, settings.yml] }`.
+- [x] Remove `restart: unless-stopped` from compose.
+- [x] Tests pass, commit `feat: remove app-run SearXNG when the desktop app quits`.
 
 ### Task 4: Settings UI states
 
 **Files:** `components/settings/agent-section.tsx`, `tests/research-settings.test.tsx`.
 
-- [ ] **Failing DOM test:**
+- [x] **Failing DOM test:**
   - With `agent.search.engine = "searxng"` and `/api/search` returning `local: {state:"missing-docker"}`, the row shows "Docker Desktop is needed for local search" and a link to `https://www.docker.com/products/docker-desktop/` (`data-testid="search-local-download"`).
   - With `state:"error"`, a Retry button (`search-local-retry`) POSTs `/api/search/local`.
   - With `state:"downloading"`, the text matches the spec table.
-- [ ] **Implement:**
+- [x] **Implement:**
   - Widen the `search` state type with `local?`.
   - The hint renders the local message plus the action for missing-docker/error.
   - An effect polls `refreshSearch` every 2 s while the state is in `{checking, starting-docker, downloading, starting}`.
   - Picking SearXNG re-reads status after the write; this already happens through the engine-keyed effect.
-- [ ] Tests pass, commit `feat: show local search progress in settings`.
+- [x] Tests pass, commit `feat: show local search progress in settings`.
 
 ### Task 5: Docs and verification
 
-- [ ] `docs/development.md`: replace the 3-step setup with the desktop flow ("install Docker Desktop, choose SearXNG (local)"); keep `npm run search:*` for web/dev.
-- [ ] `npm run typecheck && npm run lint && npm test`.
-- [ ] `npm run desktop:dist:local`; codesign verify; `Resources/searxng/compose.yml` exists in the app.
-- [ ] End-to-end on Alex's Mac without touching his profile:
+- [x] `docs/development.md`: replace the 3-step setup with the desktop flow ("install Docker Desktop, choose SearXNG (local)"); keep `npm run search:*` for web/dev.
+- [x] `npm run typecheck && npm run lint && npm test`.
+- [x] `npm run desktop:dist:local`; codesign verify; `Resources/searxng/compose.yml` exists in the app.
+- [x] End-to-end on Alex's Mac without touching his profile:
   1. Stop the manual `npm run search:start` container.
   2. Launch the packaged app with a disposable `--user-data-dir` whose `data/settings.json` pins `searxng`.
   3. Confirm the container comes up healthy by itself.
   4. Quit the app and confirm the container is gone and the other containers are untouched.
   5. Relaunch and confirm it starts again, then quit.
-- [ ] Independent review, fixes, commit, push, PR, CI, merge.
+- [x] Independent review, fixes, commit, push, PR, CI, merge.
 
 ## Execution record
 
@@ -143,3 +143,8 @@ Cases (each asserts final `status()` and the commands run):
 - **Task 2 deviation (boot trigger):** `instrumentation.ts` was built as planned, but the first package build refused to finish: `build-server.mjs` found `data/` in the standalone output. `.next/server/instrumentation.js.nft.json` listed 850 files including the repo's `data/chats/*.json`; the `outputFileTracingExcludes` `"*"` key covers routes, not the instrumentation trace. The hook was removed. The Electron shell now sends the authenticated `POST /api/search/local` once the spawned server is up, which runs the same sync. The spec was updated to match.
 - Task 3: `installUpdateNow` stays synchronous when no cleanup applies (the existing updater test pins `SIGTERM` then install), and defers to `down().finally(quitAndInstall)` only when cleanup is pending; a fixture test covers that path.
 - UI tests live in `tests/local-search-settings.test.tsx` rather than `tests/research-settings.test.tsx`.
+- **Review fixes** (independent review, same day):
+  - `retry()` re-reads the chosen engine after the in-flight operation, so an engine switched meanwhile wins.
+  - `current()`: a status read that finds SearXNG chosen but the manager idle starts it, so Settings never polls a stuck `off`.
+  - The server tracks its docker commands, kills them on SIGTERM (and `exit`), and refuses new ones afterwards. Quit/update cleanup runs `down` after the server's exit or 500 ms, whichever is first, and only for SearXNG users. A first version waited for the exit itself; the packaged run showed Next's graceful close never finishes before the 3 s SIGKILL (keep-alive sockets), so every quit took about 3.5 s.
+  - Compose mounts only `settings.yml` read-only (the entrypoint's `chown -R` on a mounted folder would block the next copy on Linux), over a named `search-config` volume at `/etc/searxng`: the first rebuild showed the image's declared `VOLUME` otherwise leaves an anonymous volume behind after every quit.

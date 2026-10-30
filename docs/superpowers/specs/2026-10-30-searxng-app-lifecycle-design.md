@@ -26,10 +26,10 @@ The server owns the lifecycle because it already knows the chosen engine and alr
   1. `checking`: find the docker binary in fixed locations (`/usr/local/bin`, `/opt/homebrew/bin`, `/Applications/Docker.app/Contents/Resources/bin` on macOS; Program Files on Windows; `PATH` on Linux), because apps started from the Dock don't inherit the shell's `PATH`. Spawned commands get those directories prepended to `PATH` so Compose finds its credential helpers. If none is found: `missing-docker`.
   2. `starting-docker`: if `docker info` fails, open Docker Desktop once and poll `docker info` for up to 2 minutes. On timeout: `error`.
   3. `downloading`: if the pinned image isn't present locally (`docker image inspect`), pull it. This happens on first use only.
-  4. `starting`: create the secret (0600) and copy `settings.yml` under `LH_SEARXNG_HOME`, then `docker compose -f <bundled compose.yml> up -d` and poll `/healthz` for up to 60 s.
+  4. `starting`: create the secret (0600) and copy `settings.yml` under `LH_SEARXNG_HOME`, then `docker compose -f <bundled compose.yml> up -d` and poll `/healthz` for up to 60 s. Compose mounts only that `settings.yml`, read-only: the image's entrypoint chowns a mounted config folder to its own user, which on Linux would stop the next start from copying the file in. `/etc/searxng` itself is a named volume (`search-config`), because the image declares it a `VOLUME` and an anonymous one would be left behind by every `down`.
   5. `ready`, or `error` with a plain message. Mapped cases: port 8080 already in use, Compose failure (last stderr line; Compose prints progress before the error), health timeout.
 - **`down`.** `docker compose ... down` for the `learnharness-search` project only. Never removes images or other projects.
-- **Status.** `GET /api/search` gains `local?: { state, message }` while the engine is `searxng`. `POST /api/search/local` re-runs `ensure`; this is the Retry button.
+- **Status.** `GET /api/search` gains `local?: { state, message }` while the engine is `searxng`. `POST /api/search/local` re-runs `ensure` once any in-flight operation ends, re-reading the chosen engine first, so a switch made meanwhile wins; this is the Retry button. A status read that finds SearXNG chosen but the manager idle (`off`, for example because the shell's boot request failed) starts it, so Settings never polls an `off` that nothing will change.
 
 ### Compose file
 
@@ -38,7 +38,7 @@ Drop `restart: unless-stopped`, so a force-quit or crash can't bring SearXNG bac
 ### Electron shell (`electron/main.cjs`, new `electron/local-search.cjs`)
 
 - Pass `LH_SEARXNG_DIR` and `LH_SEARXNG_HOME` to the server child.
-- **Quit cleanup.** In `before-quit`, if the app's compose project has a container, call `event.preventDefault()`, run `docker compose ... down` with a 10 s cap, then quit for real. If down fails or times out, quit anyway; the next launch tidies up. The docker lookup duplicates the server's fixed candidate list, and a test pins the two lists equal (the import law keeps `electron/` and `src/` apart).
+- **Quit cleanup.** In `before-quit`, if the app's compose project has a container, call `event.preventDefault()`, SIGTERM the server and give it up to 500 ms (its exit, if sooner), run `docker compose ... down` with a 10 s cap, then quit for real. On SIGTERM the server kills its docker commands in flight and refuses new ones, so a `compose up` started just before quit cannot recreate the container after `down`. The wait is not tied to the server's exit: Next's graceful close holds keep-alive sockets until the 3 s SIGKILL. Users of other engines skip the wait. If down fails or times out, quit anyway; the next launch tidies up. The docker lookup duplicates the server's fixed candidate list, and a test pins the two lists equal (the import law keeps `electron/` and `src/` apart).
 - **Packaging.** `electron-builder.yml` `extraResources` ships `ops/searxng/{compose.yml,settings.yml}` to `Resources/searxng/`.
 
 ### Settings UI (`components/settings/agent-section.tsx`)

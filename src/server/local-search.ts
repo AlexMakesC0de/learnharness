@@ -15,7 +15,7 @@
  * with the adapter's own message (server/search.ts).
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -212,10 +212,18 @@ export function createLocalSearch(deps: LocalSearchDeps) {
 
 	return {
 		status: (): LocalSearchStatus => status,
+		/** Settings' read while SearXNG is chosen: an idle manager (the boot
+		 *  request never arrived) starts now, so the hint never waits on "off". */
+		current(): LocalSearchStatus {
+			if (status.state === "off") void sync(true);
+			return status;
+		},
 		sync,
-		/** Re-run ensure (the Settings Retry button). */
-		async retry() {
-			await running;
+		/** Re-run ensure (the Settings Retry button). `wanted` is re-read once
+		 *  the in-flight operation ends: an engine switched meanwhile wins. */
+		async retry(wanted: () => boolean = () => true) {
+			while (running) await running;
+			if (!wanted()) return sync(false);
 			applied = false;
 			return sync(true);
 		},
@@ -226,6 +234,44 @@ export function createLocalSearch(deps: LocalSearchDeps) {
 
 type LocalSearch = ReturnType<typeof createLocalSearch>;
 const g = globalThis as typeof globalThis & { __lhLocalSearch?: LocalSearch | null };
+
+/** Docker commands in flight. On quit the shell SIGTERMs this server, then
+ *  runs `compose down` shortly after: a `compose up` (or a later step of the
+ *  same start) must not outlive the signal and recreate the container. Next's
+ *  own SIGTERM close waits on keep-alive sockets, so this cannot wait for
+ *  "exit" — it acts on the signal itself. */
+const runningCommands = new Set<ChildProcess>();
+let commandsStopped = false;
+
+export function stopRunningCommands(): void {
+	commandsStopped = true;
+	for (const child of runningCommands) child.kill();
+}
+
+/** Runs a binary with an argument array — never through a shell. */
+export function runCommand(
+	command: string,
+	args: string[],
+	{ env, timeoutMs }: { env: NodeJS.ProcessEnv; timeoutMs: number },
+): Promise<RunResult> {
+	if (commandsStopped) return Promise.resolve({ code: 1, stdout: "", stderr: "the app is quitting" });
+	return new Promise((resolve, reject) => {
+		const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: timeoutMs });
+		runningCommands.add(child);
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+		child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+		child.once("error", (err) => {
+			runningCommands.delete(child);
+			reject(err);
+		});
+		child.once("close", (code) => {
+			runningCommands.delete(child);
+			resolve({ code: code ?? 1, stdout, stderr });
+		});
+	});
+}
 
 function nodeDeps(composeDir: string, home: string): LocalSearchDeps {
 	return {
@@ -241,19 +287,12 @@ function nodeDeps(composeDir: string, home: string): LocalSearchDeps {
 			mkdirSync(configDir, { recursive: true, mode: 0o700 });
 			chmodSync(home, 0o700);
 			if (!existsSync(secretFile)) writeFileSync(secretFile, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
-			copyFileSync(path.join(composeDir, "settings.yml"), path.join(configDir, "settings.yml"));
+			const settings = path.join(configDir, "settings.yml");
+			copyFileSync(path.join(composeDir, "settings.yml"), settings);
+			chmodSync(settings, 0o644); // mounted read-only; the container's user must read it
 			return { secret: readFileSync(secretFile, "utf8").trim(), configDir };
 		},
-		run: (command, args, { env, timeoutMs }) =>
-			new Promise((resolve, reject) => {
-				const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: timeoutMs });
-				let stdout = "";
-				let stderr = "";
-				child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
-				child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
-				child.once("error", reject);
-				child.once("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
-			}),
+		run: runCommand,
 		fetch: (url, init) => fetch(url, init),
 		sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 		now: Date.now,
@@ -265,6 +304,10 @@ function localSearch(): LocalSearch | null {
 	const composeDir = process.env.LH_SEARXNG_DIR;
 	const home = process.env.LH_SEARXNG_HOME;
 	g.__lhLocalSearch = composeDir && home ? createLocalSearch(nodeDeps(composeDir, home)) : null;
+	if (g.__lhLocalSearch) {
+		process.once("SIGTERM", stopRunningCommands);
+		process.once("exit", stopRunningCommands);
+	}
 	return g.__lhLocalSearch;
 }
 
@@ -276,12 +319,12 @@ export function syncLocalSearch(options: { retry?: boolean } = {}): Promise<void
 	const manager = localSearch();
 	if (!manager) return Promise.resolve();
 	const wanted = searxngChosen();
-	return options.retry && wanted ? manager.retry() : manager.sync(wanted);
+	return options.retry && wanted ? manager.retry(searxngChosen) : manager.sync(wanted);
 }
 
 /** The local state for Settings — null outside the desktop server or when
  *  SearXNG is not the chosen engine. */
 export function localSearchStatus(): LocalSearchStatus | null {
 	const manager = localSearch();
-	return manager && searxngChosen() ? manager.status() : null;
+	return manager && searxngChosen() ? manager.current() : null;
 }

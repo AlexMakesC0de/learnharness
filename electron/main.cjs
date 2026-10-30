@@ -277,12 +277,21 @@ function waitUntilUp(url, tries = 150) {
 	});
 }
 
+/** The server kills its docker commands on SIGTERM (src/server/local-search.ts):
+ *  give the signal a moment, but never wait out Next's graceful close, which
+ *  holds keep-alive sockets until the SIGKILL. */
+function serverSettled(serverGone) {
+	return Promise.race([serverGone, new Promise((resolve) => setTimeout(resolve, 500))]);
+}
+
+/** Resolves once the server has exited. */
 function killServer() {
 	chatgpt?.close();
 	subscriptions?.close();
-	if (!serverProcess) return;
+	if (!serverProcess) return Promise.resolve();
 	const child = serverProcess;
 	serverProcess = null;
+	const exited = new Promise((resolve) => child.once("exit", resolve));
 	child.kill("SIGTERM");
 	setTimeout(() => {
 		try {
@@ -291,6 +300,7 @@ function killServer() {
 			/* already gone */
 		}
 	}, 3000);
+	return exited;
 }
 
 /** Security posture (all defaults asserted explicitly; the guards are the
@@ -513,8 +523,9 @@ function checkForUpdates({ manual = false } = {}) {
 
 function installUpdateNow() {
 	// Kill the server BEFORE the quit-and-install (see block comment).
+	let serverGone = Promise.resolve();
 	try {
-		killServer();
+		serverGone = killServer();
 	} catch {
 		/* already dead */
 	}
@@ -522,7 +533,7 @@ function installUpdateNow() {
 	// quit would race the bundle swap. down() is capped and never rejects.
 	if (localSearchCleanup && !localSearchCleaned) {
 		localSearchCleaned = true;
-		void localSearchCleanup.down().finally(() => autoUpdater?.quitAndInstall());
+		void localSearchCleanup.down({ after: serverSettled(serverGone) }).finally(() => autoUpdater?.quitAndInstall());
 		return;
 	}
 	autoUpdater?.quitAndInstall();
@@ -667,13 +678,13 @@ async function main() {
 	// The child must not outlive us — cover every quit path.
 	app.on("before-quit", (event) => {
 		appleDictation?.dispose();
-		killServer();
-		// Server first (it could restart SearXNG), then the container: defer
-		// this quit once for the capped `compose down`, then quit for real.
+		const serverGone = killServer();
+		// Server stopped first (it could still be starting SearXNG), then the
+		// container: defer this quit once for the capped `compose down`.
 		if (localSearchCleanup && !localSearchCleaned) {
 			localSearchCleaned = true;
 			event.preventDefault();
-			void localSearchCleanup.down().finally(() => app.quit());
+			void localSearchCleanup.down({ after: serverSettled(serverGone) }).finally(() => app.quit());
 		}
 	});
 	process.on("exit", killServer);

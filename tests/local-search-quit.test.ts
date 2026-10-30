@@ -13,7 +13,7 @@ import { dockerCandidates } from "../src/server/local-search.ts";
 
 const require = createRequire(import.meta.url);
 const cleanupModule = require("../electron/local-search.cjs") as {
-	createLocalSearchCleanup: (options: Record<string, unknown>) => { down(): Promise<boolean> };
+	createLocalSearchCleanup: (options: Record<string, unknown>) => { down(options?: { after?: Promise<unknown> }): Promise<boolean> };
 	dockerCandidates: typeof dockerCandidates;
 };
 
@@ -77,6 +77,27 @@ describe("createLocalSearchCleanup", () => {
 		assert.equal(c.children[0]!.killed, true);
 	});
 
+	it("SearXNG chosen: docker runs only once `after` settles (even if it rejects)", async () => {
+		for (const settle of ["resolve", "reject"] as const) {
+			const c = cleanup();
+			let release!: () => void;
+			const after = new Promise<void>((resolve, reject) => {
+				release = settle === "resolve" ? resolve : () => reject(new Error("server gone"));
+			});
+			const done = c.service.down({ after });
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			assert.equal(c.spawned.length, 0, "the server may still be starting SearXNG");
+			release();
+			assert.equal(await done, true);
+			assert.equal(c.spawned.length, 1);
+		}
+	});
+
+	it("another engine: quits at once, without waiting on the server", async () => {
+		const c = cleanup({ engine: "tavily" });
+		assert.equal(await c.service.down({ after: new Promise(() => {}) }), false);
+	});
+
 	it("spawn failure or a non-zero exit resolves false, never rejects", async () => {
 		assert.equal(await cleanup({ spawnThrows: true }).service.down(), false);
 		assert.equal(await cleanup({ exitCode: 1 }).service.down(), false);
@@ -106,18 +127,25 @@ describe("wiring", () => {
 		assert.match(boot, /void fetch\(`\$\{url\}\/api\/search\/local`, \{ method: "POST", headers: \{ "x-learnharness-desktop": desktopAPISecret \} \}\)/);
 	});
 
-	it("before-quit defers once for the cleanup, after the server is gone", () => {
+	it("before-quit defers once for the cleanup, after the server has exited", () => {
 		const hook = main.slice(main.indexOf('app.on("before-quit"'), main.indexOf('process.on("exit", killServer)'));
-		assert.ok(hook.indexOf("killServer()") < hook.indexOf("event.preventDefault()"));
+		assert.ok(hook.indexOf("const serverGone = killServer()") < hook.indexOf("event.preventDefault()"));
 		assert.match(hook, /localSearchCleaned = true;/);
-		assert.match(hook, /localSearchCleanup\.down\(\)\.finally\(\(\) => app\.quit\(\)\)/);
+		assert.match(hook, /localSearchCleanup\.down\(\{ after: serverSettled\(serverGone\) \}\)\.finally\(\(\) => app\.quit\(\)\)/);
+	});
+
+	it("the removal waits for the server's exit or 500 ms, never Next's slow graceful close", () => {
+		const fn = main.slice(main.indexOf("function serverSettled"), main.indexOf("/** Security posture"));
+		assert.match(fn, /Promise\.race\(\[serverGone, new Promise\(\(resolve\) => setTimeout\(resolve, 500\)\)\]\)/);
+		assert.match(fn, /const exited = new Promise\(\(resolve\) => child\.once\("exit", resolve\)\);/);
+		assert.match(fn, /return exited;/);
 	});
 
 	it("the update install path removes SearXNG before quitAndInstall", () => {
 		const fn = main.slice(main.indexOf("function installUpdateNow"), main.indexOf("function setupAutoUpdater"));
-		assert.ok(fn.indexOf("killServer()") < fn.indexOf("localSearchCleanup.down()"));
+		assert.ok(fn.indexOf("killServer()") < fn.indexOf("localSearchCleanup.down("));
 		assert.match(fn, /localSearchCleaned = true;/);
-		assert.match(fn, /localSearchCleanup\.down\(\)\.finally\(\(\) => autoUpdater\?\.quitAndInstall\(\)\)/);
+		assert.match(fn, /localSearchCleanup\.down\(\{ after: serverSettled\(serverGone\) \}\)\.finally\(\(\) => autoUpdater\?\.quitAndInstall\(\)\)/);
 	});
 
 	it("the package ships the compose files; the container no longer restarts on its own", () => {
@@ -125,5 +153,10 @@ describe("wiring", () => {
 		assert.match(builder, /- from: ops\/searxng\n\s+to: searxng\n\s+filter:\n\s+- compose\.yml\n\s+- settings\.yml/);
 		const compose = readFileSync(new URL("../ops/searxng/compose.yml", import.meta.url), "utf8");
 		assert.doesNotMatch(compose, /^\s*restart:/m);
+		// Only the settings file, read-only: the entrypoint chowns a mounted
+		// config folder, which would lock the app out of it on Linux.
+		assert.match(compose, /- \$\{LH_SEARXNG_CONFIG_DIR:\?[^}]*\}\/settings\.yml:\/etc\/searxng\/settings\.yml:ro\n/);
+		assert.match(compose, /- search-config:\/etc\/searxng\n/, "named, so `down` leaves no anonymous volume behind");
+		assert.doesNotMatch(compose, /CONFIG_DIR[^\n]*:\/etc\/searxng\n/);
 	});
 });
