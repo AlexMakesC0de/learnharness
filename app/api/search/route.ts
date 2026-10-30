@@ -10,10 +10,13 @@
  * missing case).
  */
 
-import { searchStatus } from "@/src/server";
+import { localSearchStatus, searchStatus } from "@/src/server";
 
 export const dynamic = "force-dynamic";
 
+/** `local` (desktop, SearXNG chosen): the app-run service's progress —
+ *  { state, message } for the Settings hint. */
 export async function GET() {
-	return Response.json(searchStatus());
+	const local = localSearchStatus();
+	return Response.json({ ...searchStatus(), ...(local ? { local } : {}) });
 }

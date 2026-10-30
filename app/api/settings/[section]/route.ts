@@ -39,6 +39,7 @@ import {
 	effectiveSettings,
 	promptOverrides,
 	readSettingsRecord,
+	syncLocalSearch,
 	validateChatSettings,
 	validateModelsSettings,
 	writeSettingsRecord,
@@ -129,5 +130,8 @@ export async function PUT(request: Request, ctx: { params: Promise<{ section: st
 	// along untouched (other sections, unknown keys — sanitize preserves).
 	const next = { ...record, [section]: sectionOut };
 	writeSettingsRecord(next);
+	// The engine pin decides whether the app-run SearXNG should be up
+	// (desktop only; fire-and-forget — /api/search reports progress).
+	if (section === "agent") void syncLocalSearch();
 	return Response.json({ settings: next });
 }

@@ -18,15 +18,25 @@ import {
 type Result = { code: number; stdout: string; stderr: string };
 const result = (code: number, stderr = ""): Result => ({ code, stdout: "", stderr });
 
+interface HarnessOptions {
+	platform?: NodeJS.Platform;
+	docker?: boolean;
+	daemon?: (clock: number, opened: boolean) => boolean;
+	image?: boolean;
+	pull?: Result;
+	up?: Result;
+	healthy?: (clock: number) => boolean;
+}
+
 function harness({
-	platform = "darwin" as NodeJS.Platform,
+	platform = "darwin",
 	docker = true,
-	daemon = (_clock: number, _opened: boolean) => true,
+	daemon = () => true,
 	image = true,
 	pull = result(0),
 	up = result(0),
-	healthy = (_clock: number) => true,
-} = {}) {
+	healthy = () => true,
+}: HarnessOptions = {}) {
 	let clock = 0;
 	let opened = false;
 	const calls: { command: string; args: string[]; env: NodeJS.ProcessEnv }[] = [];

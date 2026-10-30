@@ -109,7 +109,7 @@ export function createLocalSearch(deps: LocalSearchDeps) {
 	const candidates = dockerCandidates(deps.platform, deps.userHome, deps.envPath);
 	// docker-credential-desktop and the compose plugin sit beside docker.
 	const searchPath = [...new Set(candidates.map((c) => p.dirname(c))), deps.envPath].filter(Boolean).join(p.delimiter);
-	const env = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({ ...process.env, PATH: searchPath, ...extra });
+	const env = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => ({ ...process.env, PATH: searchPath, ...extra });
 	const findDocker = () => candidates.find((c) => deps.exists(c)) ?? null;
 
 	const daemonUp = async (docker: string) =>
