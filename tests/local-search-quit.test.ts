@@ -101,6 +101,11 @@ describe("wiring", () => {
 		assert.match(main, /LH_SEARXNG_HOME: path\.join\(app\.getPath\("userData"\), "searxng"\)/);
 	});
 
+	it("once the spawned server is up, the shell asks it to start SearXNG (authenticated, not awaited)", () => {
+		const boot = main.slice(main.indexOf("await waitUntilUp(url);"), main.indexOf("} else {", main.indexOf("await waitUntilUp(url);")));
+		assert.match(boot, /void fetch\(`\$\{url\}\/api\/search\/local`, \{ method: "POST", headers: \{ "x-learnharness-desktop": desktopAPISecret \} \}\)/);
+	});
+
 	it("before-quit defers once for the cleanup, after the server is gone", () => {
 		const hook = main.slice(main.indexOf('app.on("before-quit"'), main.indexOf('process.on("exit", killServer)'));
 		assert.ok(hook.indexOf("killServer()") < hook.indexOf("event.preventDefault()"));

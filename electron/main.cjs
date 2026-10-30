@@ -727,6 +727,10 @@ async function main() {
 		await startServer(new URL(url).port);
 		await waitUntilUp(url);
 		log(`server up: ${url}`);
+		// Boot start for the app-run SearXNG: the server starts it only when it
+		// is the saved engine. Not awaited — starting Docker can take minutes.
+		void fetch(`${url}/api/search/local`, { method: "POST", headers: { "x-learnharness-desktop": desktopAPISecret } })
+			.catch((err) => log(`local search: boot start request failed: ${err?.message ?? err}`));
 	} else {
 		log(`dev mode: ${devUrl}`);
 	}

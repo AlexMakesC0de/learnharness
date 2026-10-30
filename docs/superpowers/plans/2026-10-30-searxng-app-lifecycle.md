@@ -136,3 +136,10 @@ Cases (each asserts final `status()` and the commands run):
   4. Quit the app and confirm the container is gone and the other containers are untouched.
   5. Relaunch and confirm it starts again, then quit.
 - [ ] Independent review, fixes, commit, push, PR, CI, merge.
+
+## Execution record
+
+- Executed inline by Claude on 2026-10-30 in the `learnharness-macos` worktree, branch `feat/searxng-app-lifecycle`.
+- **Task 2 deviation (boot trigger):** `instrumentation.ts` was built as planned, but the first package build refused to finish: `build-server.mjs` found `data/` in the standalone output. `.next/server/instrumentation.js.nft.json` listed 850 files including the repo's `data/chats/*.json`; the `outputFileTracingExcludes` `"*"` key covers routes, not the instrumentation trace. The hook was removed. The Electron shell now sends the authenticated `POST /api/search/local` once the spawned server is up, which runs the same sync. The spec was updated to match.
+- Task 3: `installUpdateNow` stays synchronous when no cleanup applies (the existing updater test pins `SIGTERM` then install), and defers to `down().finally(quitAndInstall)` only when cleanup is pending; a fixture test covers that path.
+- UI tests live in `tests/local-search-settings.test.tsx` rather than `tests/research-settings.test.tsx`.

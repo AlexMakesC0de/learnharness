@@ -1,8 +1,11 @@
 /**
- * POST /api/search/local — Settings' Retry for the app-run SearXNG
- * (desktop server only). Starting can take minutes (opening Docker, a
- * first download), so the retry is kicked off, not awaited; the reply is
- * the state right after, and GET /api/search keeps reporting progress.
+ * POST /api/search/local — start the app-run SearXNG if it is the chosen
+ * engine (desktop server only): the Electron shell calls it once the server
+ * is up, and Settings' Retry calls it after a failure. Starting can take
+ * minutes (opening Docker, a first download), so it is kicked off, not
+ * awaited; GET /api/search keeps reporting progress. (Not a Next
+ * instrumentation hook: that trace ignores outputFileTracingExcludes and
+ * pulled the repo's data/ into the package.)
  */
 
 import { localSearchStatus, syncLocalSearch } from "@/src/server";
