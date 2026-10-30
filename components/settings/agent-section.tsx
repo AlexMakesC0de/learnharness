@@ -27,9 +27,11 @@
  * is live iff its key is present; with a key the engine AUTO-activates,
  * the explicit choice is only a preference between live engines): a row
  * in the Tools group, Tavily / Brave via the same shared-menu look, with
- * the live reason line from /api/search. No engine key at all → the row
- * grays whole-row (a choice without a key would only BLOCK the other
- * engine's auto-activation).
+ * the live reason line from /api/search. SearXNG (local, 2026-10-30) is
+ * the keyless option — always pickable, never auto-selected — so the row
+ * no longer grays out when no engine key is present (it used to: a keyed
+ * choice without its key only blocks the other engine's auto-activation,
+ * which the per-row "· no key" mark still signals).
  *
  * Tools — the owner's final list (2026-09-19): research, demo, visual, pdf.
  * Absent key = enabled in the schema; the UI writes explicit booleans for
@@ -84,8 +86,15 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
 	vision: { label: "Vision", roster: "The assistants that draw and read PDFs" },
 };
 
-/** The search engines this wave ships (src/core/search.ts) + their labels. */
-const SEARCH_ENGINES = ["tavily", "brave"] as const;
+/** The search engines this wave ships (src/core/search.ts). KEYED_ENGINES
+ *  carry an auth-store key; SearXNG (local) is keyless. */
+const KEYED_ENGINES = ["tavily", "brave"] as const;
+const SEARCH_ENGINES = [...KEYED_ENGINES, "searxng"] as const;
+const ENGINE_LABELS: Record<(typeof SEARCH_ENGINES)[number], string> = {
+	tavily: "Tavily",
+	brave: "Brave",
+	searxng: "SearXNG (local)",
+};
 
 /** The owner's final toggleable-tool list (confirm with the user before
  *  changing — the Teacher stream settled this 2026-09-19). */
@@ -299,7 +308,7 @@ export function AgentSection({
 	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
-	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>>>({});
+	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof KEYED_ENGINES)[number], boolean>>>({});
 	const [prompts, setPrompts] = useState<{ prober: SegmentInfo[]; teacher: SegmentInfo[] } | null>(null);
 	const [openSegment, setOpenSegment] = useState<string | null>(null);
 	const [segmentDraft, setSegmentDraft] = useState<Record<string, string>>({});
@@ -347,8 +356,8 @@ export function AgentSection({
 		fetch("/api/keys")
 			.then((r) => r.json())
 			.then((body: { keys: { id: string; present: boolean }[] }) => {
-				const present: Partial<Record<(typeof SEARCH_ENGINES)[number], boolean>> = {};
-				for (const id of SEARCH_ENGINES) {
+				const present: Partial<Record<(typeof KEYED_ENGINES)[number], boolean>> = {};
+				for (const id of KEYED_ENGINES) {
 					const envVar = id === "tavily" ? "TAVILY_API_KEY" : "BRAVE_API_KEY";
 					present[id] = body.keys.some((k) => k.id === envVar && k.present);
 				}
@@ -772,25 +781,22 @@ export function AgentSection({
 				))}
 				{(() => {
 					const engine = agent?.search?.engine ?? null;
-					const anyKey = engineKeys.tavily === true || engineKeys.brave === true;
 					const open = openMenu?.target === "search";
 					return (
 						<SettingsRow
 							label="Search engine"
 							hint={search?.reason ?? undefined}
 							testid="search-engine-row"
-							dimmed={!anyKey}
 						>
 							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">
 								<MenuTrigger
-									value={engine === "tavily" ? "Tavily" : engine === "brave" ? "Brave" : ""}
+									value={engine ? ENGINE_LABELS[engine] : ""}
 									emptyLabel="Automatic"
 									ariaLabel="Search engine"
 									testid="search-engine-trigger"
 									open={open}
 									onClick={() => setOpenMenu(open ? null : { target: "search", kind: "engine" })}
 									widthClass="min-w-20"
-									disabled={!anyKey}
 								/>
 								{open && (
 									<MenuShell
@@ -804,7 +810,7 @@ export function AgentSection({
 											setOpenMenu(null);
 										})}
 										{SEARCH_ENGINES.map((id) =>
-											engineOption(id, id === "tavily" ? "Tavily" : "Brave", engine === id, engineKeys[id] ?? false, () => {
+											engineOption(id, ENGINE_LABELS[id], engine === id, id === "searxng" ? null : engineKeys[id] ?? false, () => {
 												onSectionChange(composeSearchEngine(agent, id));
 												setOpenMenu(null);
 											}),

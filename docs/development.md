@@ -28,6 +28,10 @@ npm run desktop:dev    # next dev + Electron shell pointed at it
 npm run desktop:dist:local # local macOS arm64 DMG/ZIP; no Apple credentials
 npm run desktop:dist   # signed/notarized macOS arm64 build; supply your credentials
 
+npm run search:start   # local SearXNG for web_search on 127.0.0.1:8080 (Docker)
+npm run search:status  # container state + health probe
+npm run search:stop    # remove the SearXNG container (cache volume kept)
+
 # one-shot data scripts (run from the master tree only — data never crosses trees)
 npx tsx --env-file=.env.local scripts/import-notes.ts <dir>   # bulk-import notes → graph
 npx tsx --env-file=.env.local scripts/backfill-graph.ts       # wipe + re-extract every chat
@@ -37,6 +41,16 @@ npx tsx --env-file=.env.local scripts/replay-layout.ts        # re-derive layout
 For Windows/Linux packages and the three-OS CI/release flow, see [`docs/desktop-release.md`](desktop-release.md). Native renderer binaries are traced per platform, so release builds run on the target OS, not as cross-builds from macOS.
 
 For local Mac builds, use macOS 26+ with Xcode 26+ selected (`xcode-select -p` and `xcodebuild -version`). Run `npm ci`, then `npm run desktop:dist:local`. Open `dist/mac-arm64/LearnHarness.app`; the DMG and ZIP are also under `dist/`. This uses an ad-hoc signature, skips Apple notarization, and never uploads packages. The command removes previous `dist/` output before rebuilding. See the [macOS build instructions](desktop-release.md#local-macos-builds) for signing and distribution.
+
+### Local web search (SearXNG)
+
+The researcher's `web_search` can use a private [SearXNG](https://docs.searxng.org/) instead of a Tavily or Brave key. It runs in Docker and is free; the searches still go out to public engines (Google, Bing, DuckDuckGo and others) through the container, so it is local, not offline.
+
+1. Install and start Docker Desktop.
+2. Run `npm run search:start`. On first run it creates a random server secret in `~/.config/learnharness/searxng/secret` (owner-only, outside the repo; override the folder with `LH_SEARXNG_HOME`), copies [`ops/searxng/settings.yml`](../ops/searxng/settings.yml) next to it, starts the pinned official image from [`ops/searxng/compose.yml`](../ops/searxng/compose.yml), waits for the health check and runs one test search.
+3. In the app, open Settings → Agent → Search engine and choose **SearXNG (local)**.
+
+The container listens on `127.0.0.1:8080` only, never on the LAN, and restarts with Docker until you run `npm run search:stop`. The app's address for it is fixed, with no URL or key to configure. SearXNG is only used when you choose it: with no choice saved, the app still picks Tavily, then Brave, by key. If SearXNG is chosen but stopped, searches fail with a message saying to start it; the app never switches to a paid engine on its own. Individual upstream engines sometimes refuse requests (for example a DuckDuckGo CAPTCHA); the others still answer, and a search where every engine failed reports that.
 
 ## Environment (`.env.local`)
 

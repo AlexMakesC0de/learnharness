@@ -1,0 +1,34 @@
+# Private local SearXNG for LearnHarness. Loopback-only; no public exposure.
+# Run through `npm run search:start|stop|status` (scripts/local-search.mjs),
+# which supplies LH_SEARXNG_SECRET and LH_SEARXNG_CONFIG_DIR from outside the repo.
+name: learnharness-search
+
+services:
+  searxng:
+    image: ghcr.io/searxng/searxng@sha256:c4e8448495ef3b0175eb6c97a19c1ac7cc0a5c907d581ab3877f3cb430e81b86
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      SEARXNG_BASE_URL: http://127.0.0.1:8080/
+      SEARXNG_SECRET: ${LH_SEARXNG_SECRET:?LH_SEARXNG_SECRET is required}
+    volumes:
+      - ${LH_SEARXNG_CONFIG_DIR:?LH_SEARXNG_CONFIG_DIR is required}:/etc/searxng
+      - search-cache:/var/cache/searxng
+    security_opt:
+      - no-new-privileges:true
+    # Minimal capabilities needed for the entrypoint to fix mount ownership and drop privileges.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  search-cache:

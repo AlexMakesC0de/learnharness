@@ -30,8 +30,10 @@ export interface SearchHit {
 	snippet: string;
 }
 
-/** The engine ids this wave ships (the catalog: curated keys + adapters). */
-export type SearchEngineId = "tavily" | "brave";
+/** The engine ids this wave ships (the catalog: curated keys + adapters).
+ *  "searxng" (2026-10-30) is the keyless local SearXNG service on loopback
+ *  (ops/searxng) — explicit pin only, never auto-selected. */
+export type SearchEngineId = "tavily" | "brave" | "searxng";
 
 /** A live search engine: an id (for status/labels) + one operation. The
  *  adapters own their wire protocol (fetch, timeouts, error mapping) —

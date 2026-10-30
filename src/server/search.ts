@@ -14,6 +14,10 @@
  *  - An explicit choice does NOT silently fall back to the other engine:
  *    engine pinned but its key missing = honestly unavailable (reason
  *    says so) — no guessing what the user meant.
+ *  - SearXNG (2026-10-30) is keyless and local (ops/searxng, loopback
+ *    only): live whenever it is the explicit pin, never part of the
+ *    auto order, and a stopped service reports failure instead of
+ *    reaching for a paid engine.
  *
  * The adapters are injected dependencies (fetch-shaped) so the agent-layer
  * tool depends on the PORT only and tests never touch the network.
@@ -108,6 +112,138 @@ export function braveProvider(apiKey: string, fetchFn: FetchLike = fetch): Searc
 	};
 }
 
+/** The local SearXNG service (ops/searxng; `npm run search:start`). The
+ *  endpoint is FIXED to IPv4 loopback — no configurable URL, no key. */
+export const SEARXNG_ENDPOINT = "http://127.0.0.1:8080";
+
+/** A local JSON answer is a few KB per result; anything past this is not
+ *  a search response worth parsing. */
+const SEARXNG_MAX_BYTES = 1024 * 1024;
+
+/** Read a body, refusing past `limit` bytes instead of buffering it all. */
+async function readBounded(resp: Response, limit: number): Promise<string> {
+	if (!resp.body) return "";
+	const reader = resp.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > limit) {
+			await reader.cancel();
+			throw new Error(`SearXNG response too large (over ${limit} bytes)`);
+		}
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks).toString("utf8");
+}
+
+const SEARXNG_TIMEOUT_MS = 20_000;
+
+function isTimeout(err: unknown): boolean {
+	return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+}
+
+function searxngTimeout(): Error {
+	return new Error(`SearXNG (local) did not answer within ${SEARXNG_TIMEOUT_MS / 1000}s — its upstream engines may be slow`);
+}
+
+/** Only web links reach the researcher (no javascript:/data:/file:). */
+function isWebUrl(raw: string): boolean {
+	try {
+		const { protocol } = new URL(raw);
+		return protocol === "http:" || protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+/** SearXNG snippets can carry highlight markup — plain text only. */
+function plainText(html: string): string {
+	return html
+		.replace(/<[^>]*>/g, "")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/&amp;/g, "&")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+/** SearXNG: GET {SEARXNG_ENDPOINT}/search?q=…&format=json. The JSON
+ *  format must be enabled in settings.yml (403 otherwise — ops/searxng
+ *  enables it). Response {results: [{title, url, content, …}],
+ *  unresponsive_engines: [[engine, reason], …]}. SearXNG takes no count
+ *  parameter (one page ≈ 10–30 results), so the slice happens here.
+ *  Redirects are refused and the body is size-bounded. */
+export function searxngProvider(fetchFn: FetchLike = fetch): SearchProvider {
+	return {
+		id: "searxng",
+		async search(query: string, count: number): Promise<SearchHit[]> {
+			const url = new URL("/search", SEARXNG_ENDPOINT);
+			url.searchParams.set("q", query);
+			url.searchParams.set("format", "json");
+			let resp: Response;
+			try {
+				resp = await fetchFn(url.toString(), {
+					headers: { accept: "application/json" },
+					redirect: "error",
+					signal: AbortSignal.timeout(SEARXNG_TIMEOUT_MS),
+				});
+			} catch (err) {
+				if (isTimeout(err)) throw searxngTimeout();
+				const detail = err instanceof Error ? err.message : String(err);
+				throw new Error(
+					`SearXNG (local) is not running or unreachable at ${SEARXNG_ENDPOINT} — start it with \`npm run search:start\` (${detail})`,
+				);
+			}
+			if (!resp.ok) {
+				const body = (await readBounded(resp, SEARXNG_MAX_BYTES).catch(() => "")).slice(0, 200);
+				if (resp.status === 403) {
+					throw new Error(`SearXNG refused the JSON API (403) — enable the json format in its settings.yml: ${body}`);
+				}
+				if (resp.status === 429) {
+					throw new Error(`SearXNG rate limit hit (429) — its limiter should be off for a private instance: ${body}`);
+				}
+				throw new Error(`SearXNG ${resp.status}: ${body}`);
+			}
+			const text = await readBounded(resp, SEARXNG_MAX_BYTES).catch((err: unknown) => {
+				throw isTimeout(err) ? searxngTimeout() : err;
+			});
+			let data: {
+				results?: unknown;
+				unresponsive_engines?: unknown;
+			};
+			try {
+				data = JSON.parse(text) as typeof data;
+			} catch {
+				throw new Error(`SearXNG returned an unreadable response (not JSON): ${text.slice(0, 200)}`);
+			}
+			if (!Array.isArray(data.results)) {
+				throw new Error("SearXNG returned an unexpected response (no results list)");
+			}
+			const hits = (data.results as Array<{ title?: unknown; url?: unknown; content?: unknown }>)
+				.filter((r): r is { title?: unknown; url: string; content?: unknown } => typeof r?.url === "string" && isWebUrl(r.url))
+				.slice(0, Math.min(count, 20))
+				.map((r) => ({
+					title: (typeof r.title === "string" && plainText(r.title)) || r.url,
+					url: r.url,
+					snippet: plainText(typeof r.content === "string" ? r.content : "").slice(0, 500),
+				}));
+			if (hits.length === 0 && Array.isArray(data.unresponsive_engines) && data.unresponsive_engines.length > 0) {
+				const failed = (data.unresponsive_engines as unknown[])
+					.slice(0, 5)
+					.map((e) => (Array.isArray(e) ? e.filter((x) => typeof x === "string").join(": ") : String(e)))
+					.join("; ");
+				throw new Error(`SearXNG returned no results — its upstream engines failed or were blocked (${failed})`);
+			}
+			return hits;
+		},
+	};
+}
+
 /** The engines this wave ships, in PREFERENCE order (both keys present,
  *  no explicit pin → the first live engine wins; owner decision
  *  2026-09-20: Tavily first — the AI-native search API the wave chose). */
@@ -132,6 +268,9 @@ export function resolveSearchEngineFor(
 	/** Per-engine live keys (absent engine = absent property is fine). */
 	keys: Partial<Record<SearchEngineId, string | undefined>>,
 ): SearchStatus & { key: string | null } {
+	if (pinned === "searxng") {
+		return { available: true, engine: "searxng", reason: "search engine: searxng (local, chosen)", key: null };
+	}
 	const pinnedKey = pinned ? keys[pinned] ?? null : null;
 	if (pinned) {
 		if (!pinnedKey) {
@@ -151,7 +290,7 @@ export function resolveSearchEngineFor(
 	return {
 		available: false,
 		engine: null,
-		reason: "no search engine configured — set a Tavily or Brave search API key",
+		reason: "no search engine configured — set a Tavily or Brave search API key, or choose SearXNG (local)",
 		key: null,
 	};
 }
@@ -184,6 +323,8 @@ export function searchProvider(): SearchProvider | null {
 		tavily: engineKey("tavily") ?? undefined,
 		brave: engineKey("brave") ?? undefined,
 	});
-	if (!resolved.available || !resolved.key) return null;
+	if (!resolved.available) return null;
+	if (resolved.engine === "searxng") return searxngProvider();
+	if (!resolved.key) return null;
 	return resolved.engine === "tavily" ? tavilyProvider(resolved.key) : braveProvider(resolved.key);
 }

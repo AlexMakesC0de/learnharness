@@ -23,7 +23,10 @@
 		"dev:fresh": "bash scripts/dev-fresh.sh",
 		"desktop:prepare": "node scripts/build-apple-stt.mjs && rm -rf dist .next/standalone && next build && node scripts/smoke-provider-runtime.mjs && node scripts/build-server.mjs && node scripts/smoke-server.mjs --electron",
 		"desktop:dist": "node scripts/check-mac-notarization.mjs && npm run desktop:prepare && electron-builder --mac --arm64 --publish never -c.forceCodeSigning=true",
-		"desktop:dist:local": "npm run desktop:prepare && node scripts/package-local-mac.mjs"
+		"desktop:dist:local": "npm run desktop:prepare && node scripts/package-local-mac.mjs",
+		"search:start": "node scripts/local-search.mjs start",
+		"search:stop": "node scripts/local-search.mjs stop",
+		"search:status": "node scripts/local-search.mjs status"
 	},
 	"dependencies": {
 		"@earendil-works/pi-agent-core": "1.4.0",
