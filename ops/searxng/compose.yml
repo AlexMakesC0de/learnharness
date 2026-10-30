@@ -1,12 +1,14 @@
 # Private local SearXNG for LearnHarness. Loopback-only; no public exposure.
-# Run through `npm run search:start|stop|status` (scripts/local-search.mjs),
-# which supplies LH_SEARXNG_SECRET and LH_SEARXNG_CONFIG_DIR from outside the repo.
+# The desktop app starts it when SearXNG is the chosen engine and removes it
+# on quit (src/server/local-search.ts, electron/local-search.cjs); web/dev use
+# `npm run search:start|stop|status` (scripts/local-search.mjs). Both supply
+# LH_SEARXNG_SECRET and LH_SEARXNG_CONFIG_DIR from outside the repo. No
+# restart policy: a crashed or force-quit app must not leave it coming back.
 name: learnharness-search
 
 services:
   searxng:
     image: ghcr.io/searxng/searxng@sha256:c4e8448495ef3b0175eb6c97a19c1ac7cc0a5c907d581ab3877f3cb430e81b86
-    restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
     environment:

@@ -231,6 +231,17 @@ describe("status observation never controls the updater", () => {
 		f.run("serverProcess = fixtureChild; installUpdateNow()");
 		assert.deepEqual(f.order, ["SIGTERM", "install"]);
 	});
+
+	it("Restart with app-run SearXNG: server killed, container removed, then install (once)", async () => {
+		const f = fixture(); f.run("setupAutoUpdater()");
+		f.updater.emit("update-downloaded", { version: "0.3.8" });
+		f.run("serverProcess = fixtureChild; globalThis.__downs = 0; localSearchCleanup = { down: async () => { globalThis.__downs++; return true; } }; installUpdateNow()");
+		assert.deepEqual(f.order, ["SIGTERM"], "install waits for the container removal");
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert.deepEqual(f.order, ["SIGTERM", "install"]);
+		assert.equal(f.run("globalThis.__downs"), 1);
+		assert.equal(f.run("localSearchCleaned"), true, "before-quit will not run it again");
+	});
 });
 
 describe("startup, timer, trusted IPC and menu wiring", () => {
