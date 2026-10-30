@@ -159,11 +159,13 @@ describe("desktop packaging policy", () => {
 		assert.equal(config.publish[0].releaseType, "draft");
 	});
 
-	it("deb has public maintainer metadata and a matching desktop identity", () => {
+	it("retains upstream attribution and uses the fork's homepage and update feed", () => {
 		const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 		assert.equal(pkg.author.name, "Amos Blomqvist");
 		assert.equal(pkg.author.email, "255718537+amosblomqvist@users.noreply.github.com");
-		assert.equal(pkg.homepage, "https://github.com/amosblomqvist/learnharness");
+		assert.equal(pkg.homepage, "https://github.com/AlexMakesC0de/learnharness");
+		assert.equal(config.publish[0].owner, "AlexMakesC0de");
+		assert.equal(config.publish[0].repo, "learnharness");
 		assert.equal(pkg.desktopName, "learnharness.desktop");
 	});
 });

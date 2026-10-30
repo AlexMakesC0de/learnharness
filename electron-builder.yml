@@ -6,9 +6,8 @@
 #     because native .node/dylib can't dlopen from a read-only archive and
 #     server.js process.chdir()s into its own dir;
 #   - the asar holds only the shell (electron/main.cjs + package.json);
-#   - signed + notarized since 2026-10-08 (Developer ID Application cert in
-#     the login keychain; notary credentials in the LH_NOTARY keychain
-#     profile; the profile + team env vars are baked into desktop:dist).
+#   - desktop:dist uses the builder's Developer ID and notarization
+#     credentials; desktop:dist:local uses ad-hoc signing without notarization.
 appId: com.learnharness.LearnHarness
 productName: LearnHarness
 directories:
@@ -19,7 +18,7 @@ directories:
 #         macOS 26+ renders the true layered icon) + an actool fallback icns
 #         capped at 256px, which scripts/after-pack.cjs swaps for the
 #         hand-packed full-res build/icon.icns (pre-Tahoe keeps 16→1024).
-#         Requires actool ≥ 26: desktop:dist injects DEVELOPER_DIR locally;
+#         Requires actool ≥ 26: select Xcode via xcode-select or DEVELOPER_DIR;
 #         the release workflow's mac job runs setup-xcode.
 #   win   build/icon.ico  — generated (16→256) from the flat design by
 #         scripts/make-icons.mjs.
@@ -132,7 +131,7 @@ mac:
   # Developer ID Application certificate from the login keychain;
   # notarize: true makes electron-builder sign → submit to Apple's notary
   # service → staple the ticket, all inside this one build (credentials
-  # via the LH_NOTARY keychain profile, env baked into desktop:dist).
+  # supplied by the builder's environment, never baked into the command).
   # Adds minutes per build (Apple's scan queue). Verification battery:
   # codesign --verify --deep / spctl --assess / stapler validate.
   notarize: true
@@ -185,10 +184,10 @@ publish:
   # zip/blockmap live on releases; electron-updater reads them anonymously.
   # REQUIRES THE REPO TO BE PUBLIC before 0.3.0 ships — anonymous downloads
   # from a private repo are impossible, and a token baked into the app
-  # would be a leak. desktop:dist passes no --publish flag, so builds never
-  # upload; publishing happens at release time (GH_TOKEN + --publish).
+  # would be a leak. Local desktop:dist commands explicitly disable publishing;
+  # publishing happens at release time (GH_TOKEN + --publish).
   - provider: github
-    owner: amosblomqvist
+    owner: AlexMakesC0de
     repo: learnharness
     # All three CI jobs contribute assets; only the owner publishes it.
     releaseType: draft

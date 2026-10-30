@@ -22,9 +22,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows runs the suite too: path, ESM-URL and file-mode behavior
-        # differ there and only a Windows run catches them.
-        os: [ubuntu-24.04, windows-2025]
+        # Run the full suite on every desktop OS: paths, ESM URLs, file modes,
+        # and shell behavior differ from Linux.
+        os: [ubuntu-24.04, windows-2025, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:

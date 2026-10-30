@@ -25,7 +25,8 @@ npm run typecheck    # tsc --noEmit
 node scripts/smoke-web-subscriptions.mjs # after build: offline Next start/dev + reload gate
 
 npm run desktop:dev    # next dev + Electron shell pointed at it
-npm run desktop:dist   # local signed/notarized macOS arm64 build (LH_NOTARY keychain)
+npm run desktop:dist:local # local macOS arm64 DMG/ZIP; no Apple credentials
+npm run desktop:dist   # signed/notarized macOS arm64 build; supply your credentials
 
 # one-shot data scripts (run from the master tree only — data never crosses trees)
 npx tsx --env-file=.env.local scripts/import-notes.ts <dir>   # bulk-import notes → graph
@@ -34,6 +35,8 @@ npx tsx --env-file=.env.local scripts/replay-layout.ts        # re-derive layout
 ```
 
 For Windows/Linux packages and the three-OS CI/release flow, see [`docs/desktop-release.md`](desktop-release.md). Native renderer binaries are traced per platform, so release builds run on the target OS, not as cross-builds from macOS.
+
+For local Mac builds, use macOS 26+ with Xcode 26+ selected (`xcode-select -p` and `xcodebuild -version`). Run `npm ci`, then `npm run desktop:dist:local`. Open `dist/mac-arm64/LearnHarness.app`; the DMG and ZIP are also under `dist/`. This uses an ad-hoc signature, skips Apple notarization, and never uploads packages. The command removes previous `dist/` output before rebuilding. See the [macOS build instructions](desktop-release.md#local-macos-builds) for signing and distribution.
 
 ## Environment (`.env.local`)
 
