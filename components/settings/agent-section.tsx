@@ -90,6 +90,18 @@ const SLOT_META: Record<ModelSlotName, { label: string; roster: string }> = {
  *  carry an auth-store key; SearXNG (local) is keyless. */
 const KEYED_ENGINES = ["tavily", "brave"] as const;
 const SEARCH_ENGINES = [...KEYED_ENGINES, "searxng"] as const;
+/** GET /api/search. `local` is the app-run SearXNG's progress (desktop,
+ *  SearXNG chosen — src/server/local-search.ts). */
+type SearchState = {
+	available: boolean;
+	engine: string | null;
+	reason: string;
+	local?: { state: string; message: string };
+};
+/** Local states that are on their way somewhere: Settings polls through them.
+ *  "off" while chosen = the start was just requested. */
+const LOCAL_SEARCH_BUSY = new Set(["off", "checking", "starting-docker", "downloading", "starting"]);
+const DOCKER_DOWNLOAD_URL = "https://www.docker.com/products/docker-desktop/";
 const ENGINE_LABELS: Record<(typeof SEARCH_ENGINES)[number], string> = {
 	tavily: "Tavily",
 	brave: "Brave",
@@ -305,7 +317,7 @@ export function AgentSection({
 	const catalog = body?.models;
 	const slots = body?.slots;
 	/** The live search state (/api/search) — the row's reason line. */
-	const [search, setSearch] = useState<{ available: boolean; engine: string | null; reason: string } | null>(null);
+	const [search, setSearch] = useState<SearchState | null>(null);
 	/** Which search engines have a key (/api/keys) — the no-keys-anywhere
 	 *  state grays the row; per-engine marks ride the menu rows. */
 	const [engineKeys, setEngineKeys] = useState<Partial<Record<(typeof KEYED_ENGINES)[number], boolean>>>({});
@@ -321,7 +333,7 @@ export function AgentSection({
 	const refreshSearch = () =>
 		fetch("/api/search")
 			.then((r) => r.json())
-			.then((body: { available: boolean; engine: string | null; reason: string }) => setSearch(body))
+			.then((body: SearchState) => setSearch(body))
 			.catch(() => setSearch(null));
 
 	/** Re-read the prompt-segment view — the signal seam for the
@@ -373,6 +385,19 @@ export function AgentSection({
 	useEffect(() => {
 		refreshSearch();
 	}, [agent?.search?.engine]);
+
+	// The app-run SearXNG (desktop): re-read every 2 s while it starts.
+	const localState = search?.local?.state;
+	useEffect(() => {
+		if (!localState || !LOCAL_SEARCH_BUSY.has(localState)) return;
+		const id = setInterval(refreshSearch, 2_000);
+		return () => clearInterval(id);
+	}, [localState]);
+
+	const retryLocalSearch = () =>
+		fetch("/api/search/local", { method: "POST" })
+			.then(() => refreshSearch())
+			.catch(() => {});
 
 	// The dropdown contract (the chat model selector's, mirrored): any
 	// click outside the open menu — or an Esc — closes it. Esc is CLAIMED
@@ -785,7 +810,42 @@ export function AgentSection({
 					return (
 						<SettingsRow
 							label="Search engine"
-							hint={search?.reason ?? undefined}
+							hint={
+								engine === "searxng" && search?.local?.message ? (
+									<>
+										{search.local.message}
+										{search.local.state === "missing-docker" && (
+											<>
+												{" "}
+												<a
+													href={DOCKER_DOWNLOAD_URL}
+													target="_blank"
+													rel="noreferrer"
+													data-testid="search-local-download"
+													className="underline underline-offset-2"
+												>
+													Download Docker Desktop
+												</a>
+											</>
+										)}
+										{search.local.state === "error" && (
+											<>
+												{" "}
+												<button
+													type="button"
+													data-testid="search-local-retry"
+													onClick={retryLocalSearch}
+													className="underline underline-offset-2"
+												>
+													Retry
+												</button>
+											</>
+										)}
+									</>
+								) : (
+									search?.reason ?? undefined
+								)
+							}
 							testid="search-engine-row"
 						>
 							<span ref={open ? menuAnchorRef : undefined} className="relative flex items-center gap-2">

@@ -31,7 +31,9 @@ function ensureSecretAndConfig() {
 	chmodSync(HOME, 0o700);
 	if (!readSecret()) writeFileSync(SECRET_FILE, `${randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
 	chmodSync(SECRET_FILE, 0o600);
-	copyFileSync(SETTINGS_SOURCE, path.join(CONFIG_DIR, "settings.yml"));
+	const settings = path.join(CONFIG_DIR, "settings.yml");
+	copyFileSync(SETTINGS_SOURCE, settings);
+	chmodSync(settings, 0o644); // mounted read-only; the container's user must read it
 }
 
 /** docker compose scoped to this project's file (its `name:` pins the project). */

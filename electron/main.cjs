@@ -32,6 +32,7 @@ const { attachSubscriptionChild, subscriptionControl } = require("./subscription
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { createAppleDictation } = require("./apple-dictation.cjs");
+const { createLocalSearchCleanup } = require("./local-search.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -62,6 +63,11 @@ function serverEntry() {
 	// extraResources ships the whole .next payload under server/standalone/
 	// (copied from .next with an explicit filter — see electron-builder.yml).
 	return path.join(process.resourcesPath, "server", "standalone", "server.js");
+}
+
+/** The bundled SearXNG compose.yml + settings.yml (app-run local search). */
+function searxngDir() {
+	return app.isPackaged ? path.join(process.resourcesPath, "searxng") : path.join(__dirname, "..", "ops", "searxng");
 }
 
 // ─── Single instance: two instances would fight over the data dir ─────────
@@ -137,6 +143,9 @@ if (process.argv.includes("--browser-service")) {
 
 let serverProcess = null;
 let appleDictation = null;
+// App-run SearXNG: removed on quit (only when it is the saved engine).
+let localSearchCleanup = null;
+let localSearchCleaned = false;
 let chatgpt = null;
 let chatgptChild = null;
 let subscriptions = null;
@@ -224,6 +233,9 @@ function startServer(port) {
 					LH_AUTH_FILE: AUTH_FILE(),
 					LH_DESKTOP_SERVER: "1",
 					LH_DESKTOP_API_SECRET: desktopAPISecret,
+					// Enables the server's SearXNG manager (src/server/local-search.ts).
+					LH_SEARXNG_DIR: searxngDir(),
+					LH_SEARXNG_HOME: path.join(app.getPath("userData"), "searxng"),
 				},
 				stdio: ["ignore", "pipe", "pipe", "ipc"],
 			},
@@ -265,12 +277,21 @@ function waitUntilUp(url, tries = 150) {
 	});
 }
 
+/** The server kills its docker commands on SIGTERM (src/server/local-search.ts):
+ *  give the signal a moment, but never wait out Next's graceful close, which
+ *  holds keep-alive sockets until the SIGKILL. */
+function serverSettled(serverGone) {
+	return Promise.race([serverGone, new Promise((resolve) => setTimeout(resolve, 500))]);
+}
+
+/** Resolves once the server has exited. */
 function killServer() {
 	chatgpt?.close();
 	subscriptions?.close();
-	if (!serverProcess) return;
+	if (!serverProcess) return Promise.resolve();
 	const child = serverProcess;
 	serverProcess = null;
+	const exited = new Promise((resolve) => child.once("exit", resolve));
 	child.kill("SIGTERM");
 	setTimeout(() => {
 		try {
@@ -279,6 +300,7 @@ function killServer() {
 			/* already gone */
 		}
 	}, 3000);
+	return exited;
 }
 
 /** Security posture (all defaults asserted explicitly; the guards are the
@@ -501,10 +523,18 @@ function checkForUpdates({ manual = false } = {}) {
 
 function installUpdateNow() {
 	// Kill the server BEFORE the quit-and-install (see block comment).
+	let serverGone = Promise.resolve();
 	try {
-		killServer();
+		serverGone = killServer();
 	} catch {
 		/* already dead */
+	}
+	// Remove SearXNG here, not in before-quit: deferring the updater's own
+	// quit would race the bundle swap. down() is capped and never rejects.
+	if (localSearchCleanup && !localSearchCleaned) {
+		localSearchCleaned = true;
+		void localSearchCleanup.down({ after: serverSettled(serverGone) }).finally(() => autoUpdater?.quitAndInstall());
+		return;
 	}
 	autoUpdater?.quitAndInstall();
 }
@@ -646,7 +676,17 @@ async function main() {
 	});
 
 	// The child must not outlive us — cover every quit path.
-	app.on("before-quit", () => { appleDictation?.dispose(); killServer(); });
+	app.on("before-quit", (event) => {
+		appleDictation?.dispose();
+		const serverGone = killServer();
+		// Server stopped first (it could still be starting SearXNG), then the
+		// container: defer this quit once for the capped `compose down`.
+		if (localSearchCleanup && !localSearchCleaned) {
+			localSearchCleaned = true;
+			event.preventDefault();
+			void localSearchCleanup.down({ after: serverSettled(serverGone) }).finally(() => app.quit());
+		}
+	});
 	process.on("exit", killServer);
 	process.on("SIGHUP", killServer);
 
@@ -656,6 +696,13 @@ async function main() {
 	// spawn, no packaging, full HMR. The rest of this shell still applies
 	// (guards, menu, single instance).
 	const devUrl = process.env.LH_DEV_URL;
+	// Only a server this shell spawns manages SearXNG (dev uses npm run search:*).
+	if (!devUrl) {
+		localSearchCleanup = createLocalSearchCleanup({
+			settingsFile: path.join(DATA_DIR(), "settings.json"),
+			home: app.getPath("home"),
+		});
+	}
 	const url = devUrl ?? `http://127.0.0.1:${await freePort()}`;
 	if (process.platform === "darwin") appleDictation = createAppleDictation({
 		binary: app.isPackaged ? path.join(process.resourcesPath, "apple-stt") : path.join(__dirname, "..", "build", "apple-stt", "apple-stt"),
@@ -691,6 +738,10 @@ async function main() {
 		await startServer(new URL(url).port);
 		await waitUntilUp(url);
 		log(`server up: ${url}`);
+		// Boot start for the app-run SearXNG: the server starts it only when it
+		// is the saved engine. Not awaited — starting Docker can take minutes.
+		void fetch(`${url}/api/search/local`, { method: "POST", headers: { "x-learnharness-desktop": desktopAPISecret } })
+			.catch((err) => log(`local search: boot start request failed: ${err?.message ?? err}`));
 	} else {
 		log(`dev mode: ${devUrl}`);
 	}

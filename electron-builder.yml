@@ -83,6 +83,13 @@ files:
   # Main-process ID-token signature verification (no bundled OAuth implementation).
   - node_modules/jose/**/*
 extraResources:
+  # App-run local SearXNG (src/server/local-search.ts): the Compose file and
+  # its settings, read by the server via LH_SEARXNG_DIR. No secret here.
+  - from: ops/searxng
+    to: searxng
+    filter:
+      - compose.yml
+      - settings.yml
   # Attribution/license for the bounded local Pi cutoff-selector port.
   - from: docs/compaction-accounting.md
     to: licenses/pi-compaction.md
